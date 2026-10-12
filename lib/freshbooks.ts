@@ -55,11 +55,13 @@ export async function accessToken(store: Store, app: OAuthApp): Promise<string> 
   return fresh.accessToken;
 }
 
-/** Account ids the signed-in FreshBooks user can reach. */
-export async function listAccountIds(token: string): Promise<string[]> {
+/** Accounts the signed-in FreshBooks user can reach. */
+export async function listAccounts(token: string): Promise<{ accountId: string; name: string }[]> {
   const me = await raw("GET", `${API}/auth/api/v1/users/me`, token);
   const memberships: any[] = me?.response?.business_memberships ?? [];
-  return memberships.map((m) => String(m?.business?.account_id)).filter((id) => id && id !== "undefined");
+  return memberships
+    .map((m) => ({ accountId: String(m?.business?.account_id ?? ""), name: String(m?.business?.name ?? "") }))
+    .filter((a) => a.accountId);
 }
 
 export function freshBooks(store: Store, app: OAuthApp, accountId: string): FreshBooksApi {

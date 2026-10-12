@@ -1,6 +1,5 @@
-import { env } from "@/lib/config";
 import { oauthApp, store } from "@/lib/deps";
-import { listAccountIds, requestTokens, safeEqual } from "@/lib/freshbooks";
+import { listAccounts, requestTokens, safeEqual } from "@/lib/freshbooks";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +15,16 @@ export async function GET(req: Request) {
 
   const tokens = await requestTokens(oauthApp(), { grant_type: "authorization_code", code });
   // Refuse to connect to any FreshBooks account other than the one configured.
-  const accounts = await listAccountIds(tokens.accessToken);
-  if (!accounts.includes(env("FRESHBOOKS_ACCOUNT_ID")))
-    return Response.json({ error: "That login does not have the configured FreshBooks account.", accountsOnThisLogin: accounts }, { status: 403 });
+  const accounts = await listAccounts(tokens.accessToken);
+  const configured = process.env.FRESHBOOKS_ACCOUNT_ID;
+  if (!configured)
+    return Response.json({
+      status: "not connected yet",
+      next: "Copy the accountId of your TEST business into the FRESHBOOKS_ACCOUNT_ID setting, redeploy, then sign in again.",
+      accounts,
+    });
+  if (!accounts.some((a) => a.accountId === configured))
+    return Response.json({ error: "That login does not have the configured FreshBooks account.", accounts }, { status: 403 });
 
   await s.saveTokens(tokens);
   await s.log("info", "FreshBooks connected");
