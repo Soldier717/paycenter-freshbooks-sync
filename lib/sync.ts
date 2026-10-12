@@ -228,9 +228,10 @@ async function syncRefund(deps: Deps, p: PcPayment, row: LedgerRow | null): Prom
 }
 
 /** Catches anything a webhook missed. Walks Pay Center payments changed since the last run. */
-export async function reconcile(deps: Deps): Promise<Result> {
+export async function reconcile(deps: Deps, opts: { full?: boolean } = {}): Promise<Result> {
   const { store, pc } = deps;
-  let cursor = await store.getKv("pc_payments_cursor");
+  // full = look back as far as Pay Center allows (7 days) and leave the saved position alone.
+  let cursor = opts.full ? null : await store.getKv("pc_payments_cursor");
   const counts: Record<string, number> = {};
   const payments: { id: string; providerStatus: string; type: string; result: string }[] = [];
   for (let page = 0; page < 25; page++) {
@@ -248,7 +249,7 @@ export async function reconcile(deps: Deps): Promise<Result> {
     }
     if (res.nextUpdatedAfter) {
       cursor = res.nextUpdatedAfter;
-      await store.setKv("pc_payments_cursor", cursor);
+      if (!opts.full) await store.setKv("pc_payments_cursor", cursor);
     }
     if (!res.limit || (res.recordsReturned ?? 0) < res.limit) break;
   }

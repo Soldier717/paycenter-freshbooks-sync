@@ -223,6 +223,14 @@ describe("reconcile and helpers", () => {
     expect(w.fbCalls.create).toBe(1);
   });
 
+  it("a full re-check leaves the saved position alone", async () => {
+    const w = world();
+    await syncInvoice(w.deps, "7");
+    w.pay();
+    expect(await reconcile(w.deps, { full: true })).toMatchObject({ counts: { posted: 1 } });
+    expect(w.kv.has("pc_payments_cursor")).toBe(false);
+  });
+
   it("converts money exactly", () => {
     expect(toCents("10.29")).toBe(1029);
     expect(toCents("1150.1")).toBe(115010);

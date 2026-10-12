@@ -16,5 +16,5 @@ export async function POST(req: Request) {
 // Browser link: /api/admin/sync?key=ADMIN_SECRET re-checks every Pay Center payment from the last few days.
 export async function GET(req: Request) {
   if (!isAdmin(req)) return denied();
-  return Response.json(await reconcile(deps()));
+  return Response.json(await reconcile(deps(), { full: true }));
 }
