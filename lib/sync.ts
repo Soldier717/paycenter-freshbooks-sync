@@ -232,6 +232,7 @@ export async function reconcile(deps: Deps): Promise<Result> {
   const { store, pc } = deps;
   let cursor = await store.getKv("pc_payments_cursor");
   const counts: Record<string, number> = {};
+  const payments: { id: string; providerStatus: string; type: string; result: string }[] = [];
   for (let page = 0; page < 25; page++) {
     const res = await pc.listPayments(cursor);
     for (const rec of res.records ?? []) {
@@ -243,6 +244,7 @@ export async function reconcile(deps: Deps): Promise<Result> {
         await store.log("error", "Reconcile could not process a payment", { pcPaymentId: rec._id, error: String(err) });
       }
       counts[status] = (counts[status] ?? 0) + 1;
+      payments.push({ id: rec._id, providerStatus: rec.status, type: rec.type, result: status });
     }
     if (res.nextUpdatedAfter) {
       cursor = res.nextUpdatedAfter;
@@ -250,5 +252,5 @@ export async function reconcile(deps: Deps): Promise<Result> {
     }
     if (!res.limit || (res.recordsReturned ?? 0) < res.limit) break;
   }
-  return { status: "done", counts };
+  return { status: "done", counts, payments };
 }

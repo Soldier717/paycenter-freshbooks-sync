@@ -16,5 +16,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ secret: string
   // Only the id is taken from the webhook. The payment itself is re-read from Pay Center,
   // so a forged or stale notification cannot change what gets posted.
   // A failure returns 500 so Pay Center retries; the ledger makes repeats harmless.
-  return Response.json(await syncPayment(deps(), id));
+  const d = deps();
+  const result = await syncPayment(d, id);
+  await d.store.log("info", `Pay Center payment notification: ${result.status}`, { pcPaymentId: id, notified: body?.data?.status, result });
+  return Response.json(result);
 }
