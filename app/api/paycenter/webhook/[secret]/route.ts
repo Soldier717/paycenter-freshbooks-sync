@@ -11,6 +11,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ secret: string
 
   const body = await req.json().catch(() => null);
   const id = body?.data?._id;
+  if (body?.action === "notification") {
+    // Delivery state of the text/email Pay Center sent, or the customer opening the link.
+    const d = body.data ?? {};
+    await storeFor(m).log(d.status === "failed" ? "error" : "info", `Pay Center ${d.type ?? "notification"}: ${d.status ?? d.event ?? "update"}`, d);
+    return Response.json({ status: "logged" });
+  }
   if (body?.action !== "payment" || typeof id !== "string") return Response.json({ status: "ignored" });
 
   // Only the id is taken from the webhook. The payment itself is re-read from Pay Center,

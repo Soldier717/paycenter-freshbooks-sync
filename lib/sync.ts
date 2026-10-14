@@ -85,7 +85,11 @@ export async function syncInvoice(deps: Deps, fbInvoiceId: string): Promise<Resu
     fingerprint: print,
     payLink: res.link ?? null,
   });
-  await store.log("info", "Linked FreshBooks invoice to Pay Center", { fbInvoiceId, pcInvoiceId: res._id });
+  const customer = body.customer as { primaryContact?: { email?: string; mobilePhone?: string } } | undefined;
+  await store.log("info", "Linked FreshBooks invoice to Pay Center", {
+    fbInvoiceId, pcInvoiceId: res._id,
+    customerSent: customer ? { email: !!customer.primaryContact?.email, mobile: !!customer.primaryContact?.mobilePhone } : "no (link only)",
+  });
   return { status: "linked", pcInvoiceId: res._id, payLink: res.link ?? null };
 }
 
