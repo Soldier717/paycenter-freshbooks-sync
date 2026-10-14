@@ -43,15 +43,17 @@ export async function listMerchants(): Promise<MerchantSummary[]> {
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return [];
   const [tokens, callbacks, attention, invoices] = await Promise.all([
-    ok(await db().from("fb_tokens").select("merchant_id").in("merchant_id", ids)) as any[],
+    ok(await db().from("fb_tokens").select("merchant_id, access_token").in("merchant_id", ids)) as any[],
     ok(await db().from("fb_callbacks").select("merchant_id").in("merchant_id", ids).eq("verified", true)) as any[],
     ok(await db().from("payment_ledger").select("merchant_id").in("merchant_id", ids).in("state", ["review", "uncertain"])) as any[],
     ok(await db().from("invoice_map").select("merchant_id").in("merchant_id", ids)) as any[],
   ]);
   const count = (list: any[], id: string) => list.filter((x) => x.merchant_id === id).length;
+  // A token row only counts if it decrypts; rows from before encryption are ignored.
+  const usable = (tokens ?? []).filter((t) => { try { open(t.access_token); return true; } catch { return false; } });
   return rows.map((r) => ({
     ...toMerchant(r),
-    fbConnected: count(tokens ?? [], r.id) > 0,
+    fbConnected: count(usable, r.id) > 0,
     webhooksRegistered: count(callbacks ?? [], r.id),
     attention: count(attention ?? [], r.id),
     invoices: count(invoices ?? [], r.id),
