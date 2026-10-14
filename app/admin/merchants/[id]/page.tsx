@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/admin-session";
 import { storeFor } from "@/lib/deps";
 import { db, getMerchant } from "@/lib/merchants";
 import { connectUrl } from "@/lib/onboarding";
-import { makeConnectLink, recheckPayments, registerMerchantWebhooks, resolveItem, saveMerchant } from "../../actions";
+import { makeConnectLink, pushInvoice, recheckPayments, registerMerchantWebhooks, resolveItem, saveMerchant } from "../../actions";
 import { SettingsFields } from "../settings-fields";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +53,14 @@ export default async function MerchantPage({ params, searchParams }: { params: P
           {fbTokens && <form action={registerMerchantWebhooks}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Register webhooks</button></form>}
           {ready && <form action={recheckPayments}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Re-check payments (7 days)</button></form>}
         </div>
+        {ready && (
+          <form action={pushInvoice} className="row" style={{ marginTop: 12 }}>
+            <input type="hidden" name="id" value={m.id} />
+            <input name="invoiceId" placeholder="FreshBooks invoice id" style={{ maxWidth: 220 }} />
+            <button className="btn" type="submit">Push invoice to Pay Center</button>
+            <span className="small muted">Same as a FreshBooks webhook; safe to repeat.</span>
+          </form>
+        )}
         {connectLink && (
           <p className="small" style={{ marginTop: 14 }}>
             Send this to the merchant. They sign in to FreshBooks and approve; nothing else is needed from them.<br />

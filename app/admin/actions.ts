@@ -6,7 +6,7 @@ import { depsFor, storeFor } from "@/lib/deps";
 import { ADMIN_COOKIE, adminCookieValue, hasAdminCookie, isAdminSecret } from "@/lib/guard";
 import { createMerchant, getMerchant, issueConnectToken, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
-import { reconcile } from "@/lib/sync";
+import { reconcile, syncInvoice } from "@/lib/sync";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const pick = <T extends string>(v: string, allowed: readonly T[], fallback: T): T => (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
@@ -110,4 +110,20 @@ export async function resolveItem(form: FormData) {
   await storeFor(m).resolveLedger(str(form, "pcPaymentId"), note);
   await storeFor(m).log("info", "Held item marked resolved", { pcPaymentId: str(form, "pcPaymentId"), note });
   back(id, "Marked as resolved.");
+}
+
+export async function pushInvoice(form: FormData) {
+  await guard();
+  const id = str(form, "id");
+  const invoiceId = str(form, "invoiceId").replace(/\D/g, "");
+  const m = await getMerchant(id);
+  if (!m) redirect("/admin");
+  if (!invoiceId) back(id, "Enter the FreshBooks invoice id (the number in the invoice's web address).", true);
+  try {
+    const r = await syncInvoice(depsFor(m), invoiceId);
+    back(id, `Invoice ${invoiceId}: ${r.status}${r.reason ? ` (${r.reason})` : ""}.`, r.status === "needs_review");
+  } catch (err) {
+    if ((err as any)?.digest?.startsWith?.("NEXT_REDIRECT")) throw err;
+    back(id, `Invoice ${invoiceId}: ${String(err)}`, true);
+  }
 }
