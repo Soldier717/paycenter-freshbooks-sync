@@ -1,4 +1,31 @@
-export type LedgerState = "posting" | "posted" | "uncertain" | "review" | "reversed" | "applied";
+export type LedgerState = "posting" | "posted" | "uncertain" | "review" | "reversed" | "applied" | "resolved";
+
+export type MerchantStatus = "setup" | "active" | "paused";
+
+export interface Merchant {
+  id: string;
+  name: string;
+  status: MerchantStatus;
+  fbAccountId: string | null;
+  pcBaseUrl: string;
+  pcSiteId: string;
+  /** Decrypted. Null until entered. */
+  pcAccessToken: string | null;
+  pcWebhookSecret: string;
+  notifyMode: "link" | "customer";
+  recordOn: "settled" | "captured";
+  reversals: "review" | "auto";
+  connectToken: string | null;
+  connectExpiresAt: number | null;
+  createdAt: string;
+}
+
+export interface MerchantSummary extends Merchant {
+  fbConnected: boolean;
+  webhooksRegistered: number;
+  attention: number;
+  invoices: number;
+}
 
 export interface InvoiceLink {
   fbInvoiceId: string;
@@ -42,8 +69,10 @@ export interface Store {
   updateLedger(pcPaymentId: string, patch: Partial<LedgerRow>): Promise<void>;
   countLedgerForInvoice(pcInvoiceId: string): Promise<number>;
   listAttention(): Promise<LedgerRow[]>;
+  resolveLedger(pcPaymentId: string, note: string): Promise<void>;
 
   saveCallback(callbackId: string, event: string): Promise<void>;
+  countCallbacks(): Promise<number>;
   /** Stores the verifier only for a callback we registered and have not verified yet. */
   setVerifier(callbackId: string, verifier: string): Promise<boolean>;
   verifiersFor(event: string): Promise<string[]>;

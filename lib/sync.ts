@@ -125,6 +125,7 @@ export async function syncPayment(deps: Deps, pcPaymentId: string): Promise<Resu
   if (REVERSED.has(p.status)) {
     if (!row) return { status: "ignored", reason: `Payment ${p.status} before it was ever posted` };
     if (row.state === "reversed") return { status: "already_reversed" };
+    if (row.state === "resolved") return { status: "resolved", reason: row.reason };
     if (row.state !== "posted" || !row.fbPaymentId) return { status: "needs_review", reason: row.reason };
     if (settings.reversals !== "auto")
       return hold(deps, p, `Payment ${p.status} after it was posted to FreshBooks; reverse it there`);
@@ -146,6 +147,7 @@ export async function syncPayment(deps: Deps, pcPaymentId: string): Promise<Resu
 
   if (row) {
     if (row.state === "posted") return { status: "already_posted", fbPaymentId: row.fbPaymentId };
+    if (row.state === "resolved") return { status: "resolved", reason: row.reason };
     return { status: row.state === "posting" ? "in_progress" : "needs_review", reason: row.reason };
   }
 
