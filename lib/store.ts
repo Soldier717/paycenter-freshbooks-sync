@@ -35,7 +35,11 @@ export function merchantStore(merchantId: string): Store {
     async getTokens() {
       const r: any = ok(await db().from("fb_tokens").select("*").eq("merchant_id", m).maybeSingle());
       if (!r) return null;
-      return { accessToken: open(r.access_token), refreshToken: open(r.refresh_token), expiresAt: new Date(r.expires_at).getTime() };
+      try {
+        return { accessToken: open(r.access_token), refreshToken: open(r.refresh_token), expiresAt: new Date(r.expires_at).getTime() };
+      } catch {
+        return null; // a row from before tokens were encrypted: treat as not connected
+      }
     },
     async saveTokens(t: FbTokens) {
       ok(await db().from("fb_tokens").upsert({
