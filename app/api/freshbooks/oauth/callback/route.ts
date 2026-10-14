@@ -2,7 +2,7 @@ import { appUrl } from "@/lib/config";
 import { verify } from "@/lib/crypto";
 import { oauthApp, storeFor } from "@/lib/deps";
 import { listAccounts, requestTokens } from "@/lib/freshbooks";
-import { getMerchant, updateMerchant } from "@/lib/merchants";
+import { getMerchant, merchantByFbAccount, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,13 @@ export async function GET(req: Request) {
          <p>Please sign out of FreshBooks and try again with the right login.</p>`, 403);
   } else if (accounts.length === 1) {
     accountId = accounts[0].accountId;
+    const other = await merchantByFbAccount(accountId);
+    if (other && other.id !== m.id)
+      return page("Already connected elsewhere",
+        `<p>This FreshBooks account (<code>${accountId}</code>, ${accounts[0].name}) is already connected to <b>${other.name}</b>.</p>
+         <p>${who === "admin"
+           ? `Sign in with a different FreshBooks login for <b>${m.name}</b>, or clear the FreshBooks account id on <a href="${appUrl()}/admin/merchants/${other.id}">${other.name}</a> first and try again.`
+           : "Please tell Priority Business Solutions; this login is already in use for another business."}</p>`, 409);
     await updateMerchant(m.id, { fbAccountId: accountId });
   } else {
     const list = accounts.map((a) => `<li><code>${a.accountId}</code> — ${a.name}</li>`).join("");
