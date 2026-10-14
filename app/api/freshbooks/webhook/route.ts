@@ -33,6 +33,7 @@ export async function POST(req: Request) {
     return Response.json(await syncInvoice(depsFor(m), get("object_id")));
   } catch (err) {
     if (err instanceof MerchantNotReady) return Response.json({ status: "ignored", reason: err.message });
+    await s.log("error", "Could not process FreshBooks invoice event", { fbInvoiceId: get("object_id"), event: get("name"), error: String(err) });
     throw err;
   }
 }

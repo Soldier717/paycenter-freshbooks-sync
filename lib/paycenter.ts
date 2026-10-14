@@ -13,8 +13,9 @@ export function payCenter(baseUrl: string, siteId: string, token: string): PayCe
         redirect: "error",
         signal: AbortSignal.timeout(20000),
       });
-    } catch {
-      throw new ProviderError("Pay Center did not respond", false);
+    } catch (err: any) {
+      const cause = err?.cause?.code ?? err?.cause?.message ?? err?.name ?? String(err);
+      throw new ProviderError(`Pay Center did not respond (${cause}) at ${root}${path}`, false);
     }
     const text = await res.text();
     let json: any = null;
