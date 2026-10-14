@@ -1,6 +1,11 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { env } from "./config";
 import { open, randomSecret, seal } from "./crypto";
+
+/** Tokens pasted from email arrive with line-wrap whitespace and "smart" dashes. Header values cannot contain them. */
+export function cleanToken(raw: string): string {
+  return raw.replace(/[\u2010-\u2015\u2212]/g, "-").replace(/[\s\u00a0\u200b\u200c\u200d\ufeff]/g, "");
+}
 import { Merchant, MerchantSummary } from "./types";
 
 let client: SupabaseClient | null = null;
@@ -103,7 +108,7 @@ export async function createMerchant(input: MerchantInput): Promise<Merchant> {
     fb_account_id: input.fbAccountId?.trim() || null,
     pc_base_url: input.pcBaseUrl.trim().replace(/\/+$/, ""),
     pc_site_id: input.pcSiteId.trim(),
-    pc_access_token_enc: input.pcAccessToken ? seal(input.pcAccessToken.trim()) : null,
+    pc_access_token_enc: input.pcAccessToken ? seal(cleanToken(input.pcAccessToken)) : null,
     pc_webhook_secret: randomSecret(),
     notify_mode: input.notifyMode, record_on: input.recordOn, reversals: input.reversals,
   }).select("*").single());
@@ -117,7 +122,7 @@ export async function updateMerchant(id: string, patch: Partial<MerchantInput>):
   if (patch.fbAccountId !== undefined) row.fb_account_id = patch.fbAccountId?.trim() || null;
   if (patch.pcBaseUrl !== undefined) row.pc_base_url = patch.pcBaseUrl.trim().replace(/\/+$/, "");
   if (patch.pcSiteId !== undefined) row.pc_site_id = patch.pcSiteId.trim();
-  if (patch.pcAccessToken) row.pc_access_token_enc = seal(patch.pcAccessToken.trim());
+  if (patch.pcAccessToken) row.pc_access_token_enc = seal(cleanToken(patch.pcAccessToken));
   if (patch.notifyMode !== undefined) row.notify_mode = patch.notifyMode;
   if (patch.recordOn !== undefined) row.record_on = patch.recordOn;
   if (patch.reversals !== undefined) row.reversals = patch.reversals;

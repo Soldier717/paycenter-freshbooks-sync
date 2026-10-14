@@ -26,3 +26,10 @@ describe("tokens at rest and signed links", () => {
     expect(verify(sign({ m: "merchant-1" }, -1))).toBeNull();
   });
 });
+
+import { cleanToken } from "@/lib/merchants";
+describe("pasted tokens", () => {
+  it("removes line-wrap whitespace and smart dashes", () => {
+    expect(cleanToken("ey Ja\tbc.\n de–f .g hi")).toBe("eyJabc.de-f.ghi");
+  });
+});
