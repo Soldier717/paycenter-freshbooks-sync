@@ -3,6 +3,8 @@ import { easternDate, toCents, toDecimal } from "./money";
 import { Deps, FbInvoice, LedgerRow, PcPayment, ProviderError } from "./types";
 
 const REVERSED = new Set(["returned", "voided", "chargebacked"]);
+/** Attempts that never took money. Nothing to post, nothing to wait for. */
+const DEAD = new Set(["declined", "failed", "error", "expired", "cancelled", "canceled", "rejected"]);
 const REFUND_DONE = new Set(["refunded", "refundSettled"]);
 const REFUND_STATES = new Set(["refunded", "refundSettled", "refundRequested", "refundFailed"]);
 
@@ -145,6 +147,12 @@ export async function syncPayment(deps: Deps, pcPaymentId: string): Promise<Resu
 
   // A refund arrives as its own payment record, so the original needs no action here.
   if (REFUND_STATES.has(p.status)) return { status: "ignored", reason: "Handled by the refund record" };
+
+  if (DEAD.has(p.status)) {
+    // A declined attempt that was somehow posted earlier is a problem worth a human's eyes.
+    if (row && row.state === "posted") return hold(deps, p, `Payment is now ${p.status} but was posted to FreshBooks`);
+    return { status: "declined", providerStatus: p.status };
+  }
 
   const ready = p.status === "settled" || (settings.recordOn === "captured" && p.status === "captured");
   if (!ready) return { status: "waiting", providerStatus: p.status };

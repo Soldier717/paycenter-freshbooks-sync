@@ -44,7 +44,7 @@ lives in environment settings.
 
 Adding a merchant:
 
-1. `/admin` → Add merchant. Enter the name and their Pay Center site id and token.
+1. `/admin` → Add merchant. With `PAYCENTER_AGENCY_TOKEN` set, a production Pay Center site is created under the PBS agency (card + ACH enabled, webhook pointed here, API-only access); Hyfin attaches the gateway/processor. Otherwise enter an existing site id and token.
 2. On the merchant page, either click "Connect FreshBooks myself" (if you have their login) or
    "Create a connect link" and send the link to the merchant. They sign in to FreshBooks and approve.
 3. The four invoice webhooks register automatically after connecting. The Setup list shows when

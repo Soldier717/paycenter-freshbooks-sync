@@ -2,7 +2,8 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { depsFor, storeFor } from "@/lib/deps";
+import { depsFor, settingsFor, storeFor } from "@/lib/deps";
+import { addUpdateSite, agency } from "@/lib/paycenter-agency";
 import { ADMIN_COOKIE, adminCookieValue, hasAdminCookie, isAdminSecret } from "@/lib/guard";
 import { createMerchant, getMerchant, issueConnectToken, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
@@ -33,19 +34,40 @@ export async function logout() {
 export async function addMerchant(form: FormData) {
   await guard();
   const name = str(form, "name");
+  const ag = agency();
+  const create = !!ag && str(form, "siteMode") !== "existing";
   const pcSiteId = str(form, "pcSiteId");
-  if (!name || !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Name and Pay Center site id are required"));
+  if (!name) redirect("/admin/merchants/new?error=" + encodeURIComponent("Merchant name is required"));
+  if (!create && !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Enter the Pay Center site id, or choose to create a new site"));
   const m = await createMerchant({
     name,
-    pcBaseUrl: str(form, "pcBaseUrl") || "https://api.paycenter.app",
-    pcSiteId,
-    pcAccessToken: str(form, "pcAccessToken") || null,
+    pcBaseUrl: create ? ag!.baseUrl : str(form, "pcBaseUrl") || "https://api.paycenter.app",
+    pcSiteId: create ? "pending" : pcSiteId,
+    pcAccessToken: create ? null : str(form, "pcAccessToken") || null,
     fbAccountId: str(form, "fbAccountId") || null,
     notifyMode: pick(str(form, "notifyMode"), ["link", "customer"] as const, "customer"),
     recordOn: pick(str(form, "recordOn"), ["settled", "captured"] as const, "settled"),
     reversals: pick(str(form, "reversals"), ["review", "auto"] as const, "review"),
   });
-  redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent("Merchant created. Next: connect FreshBooks.")}`);
+  if (!create) redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent("Merchant created. Next: connect FreshBooks.")}`);
+
+  // Create the Pay Center site now that we have an id and a webhook secret for it.
+  let site;
+  try {
+    site = await addUpdateSite({
+      externalId: `pbs:${m.id}`,
+      name,
+      merchantId: str(form, "merchantId") || undefined,
+      webhookUrl: settingsFor(m).webhookUrl!,
+      location: { addressLine1: str(form, "addressLine1"), city: str(form, "city"), stateCode: str(form, "stateCode").toUpperCase(), zipCode: str(form, "zipCode"), phone: str(form, "phone") },
+    });
+  } catch (err) {
+    await storeFor(m).log("error", "Pay Center site could not be created", { error: String(err) });
+    back(m.id, `Merchant saved, but Pay Center did not create the site: ${(err as Error).message}. Enter a site id in Settings or try again.`, true);
+  }
+  await updateMerchant(m.id, { pcSiteId: site!.id });
+  await storeFor(m).log("info", `Pay Center site ${site!.action}`, { pcSiteId: site!.id, agency: ag!.id });
+  redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent(`Merchant created with Pay Center site ${site!.id}. Next: connect FreshBooks.`)}`);
 }
 
 export async function saveMerchant(form: FormData) {

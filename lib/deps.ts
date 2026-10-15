@@ -1,6 +1,7 @@
 import { appUrl, env } from "./config";
 import { freshBooks, OAuthApp } from "./freshbooks";
 import { payCenter } from "./paycenter";
+import { agencyTokenFor } from "./paycenter-agency";
 import { merchantStore } from "./store";
 import { Deps, Merchant, Store, SyncSettings } from "./types";
 
@@ -28,14 +29,20 @@ export function settingsFor(m: Merchant): SyncSettings {
 
 export class MerchantNotReady extends Error {}
 
+/** A merchant's own site token wins; otherwise the agency token covers any site under the PBS agency. */
+export function pcTokenFor(m: Merchant): string | null {
+  return m.pcAccessToken ?? agencyTokenFor(m.pcBaseUrl);
+}
+
 export function depsFor(m: Merchant): Deps {
   if (!m.fbAccountId) throw new MerchantNotReady(`${m.name}: FreshBooks is not connected yet`);
-  if (!m.pcAccessToken) throw new MerchantNotReady(`${m.name}: Pay Center token is missing`);
+  const token = pcTokenFor(m);
+  if (!token) throw new MerchantNotReady(`${m.name}: Pay Center token is missing`);
   const s = storeFor(m);
   return {
     store: s,
     fb: freshBooks(s, oauthApp(), m.fbAccountId),
-    pc: payCenter(m.pcBaseUrl, m.pcSiteId, m.pcAccessToken),
+    pc: payCenter(m.pcBaseUrl, m.pcSiteId, token),
     settings: settingsFor(m),
   };
 }

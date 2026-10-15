@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-session";
-import { storeFor } from "@/lib/deps";
+import { pcTokenFor, storeFor } from "@/lib/deps";
 import { db, getMerchant } from "@/lib/merchants";
 import { connectUrl } from "@/lib/onboarding";
 import { makeConnectLink, pushInvoice, recheckPayments, registerMerchantWebhooks, resolveItem, saveMerchant } from "../../actions";
@@ -26,7 +26,8 @@ export default async function MerchantPage({ params, searchParams }: { params: P
     s.recentLog(30) as Promise<any[]>,
   ]);
   const verified = (await db().from("fb_callbacks").select("callback_id", { count: "exact", head: true }).eq("merchant_id", m.id).eq("verified", true)).count ?? 0;
-  const ready = !!m.pcAccessToken && !!fbTokens && verified >= 4;
+  const tokenSource = m.pcAccessToken ? "site" : pcTokenFor(m) ? "agency" : null;
+  const ready = !!tokenSource && !!fbTokens && verified >= 4;
   const connectLink = m.connectToken && m.connectExpiresAt && m.connectExpiresAt > Date.now() ? connectUrl(m.connectToken) : null;
 
   return (
@@ -42,7 +43,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Setup</h2>
         <ul className="check">
-          <li><span className={`dot ${m.pcAccessToken ? "ok" : "warn"}`} /><span>Pay Center token {m.pcAccessToken ? "entered" : "missing — add it in Settings below"}</span></li>
+          <li><span className={`dot ${tokenSource ? "ok" : "warn"}`} /><span>Pay Center access {tokenSource === "site" ? "via this site's token" : tokenSource === "agency" ? "via the PBS agency token" : "missing — add a site token in Settings below"}</span></li>
           <li><span className={`dot ${fbTokens ? "ok" : "warn"}`} /><span>FreshBooks {fbTokens ? <>connected (account <code>{m.fbAccountId}</code>)</> : "not connected"}</span></li>
           <li><span className={`dot ${verified >= 4 ? "ok" : callbacks > 0 ? "warn" : ""}`} /><span>Invoice webhooks: {verified} of 4 verified{callbacks > verified ? ` (${callbacks - verified} waiting on FreshBooks)` : ""}</span></li>
           <li><span className={`dot ${m.status === "active" ? "ok" : "warn"}`} /><span>Status {m.status}{ready && m.status !== "active" ? " — everything is in place; set it to active in Settings" : ""}</span></li>
@@ -113,7 +114,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
             </div>
             <div><label htmlFor="pcBaseUrl">Pay Center API base URL</label><input id="pcBaseUrl" name="pcBaseUrl" defaultValue={m.pcBaseUrl} /></div>
             <div><label htmlFor="pcSiteId">Pay Center site id</label><input id="pcSiteId" name="pcSiteId" defaultValue={m.pcSiteId} className="mono" /></div>
-            <div><label htmlFor="pcAccessToken">Pay Center token {m.pcAccessToken ? "(leave blank to keep)" : ""}</label><input id="pcAccessToken" name="pcAccessToken" type="password" autoComplete="off" className="mono" /></div>
+            <div><label htmlFor="pcAccessToken">Pay Center site token {m.pcAccessToken ? "(leave blank to keep)" : "(optional when the site is under the PBS agency)"}</label><input id="pcAccessToken" name="pcAccessToken" type="password" autoComplete="off" className="mono" /></div>
             <div><label htmlFor="fbAccountId">FreshBooks account id</label><input id="fbAccountId" name="fbAccountId" defaultValue={m.fbAccountId ?? ""} className="mono" /></div>
           </div>
           <h2>Rules</h2>

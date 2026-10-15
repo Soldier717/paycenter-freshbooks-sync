@@ -87,6 +87,14 @@ describe("payment -> FreshBooks", () => {
     expect((await syncPayment(w.deps, "pay1")).status).toBe("posted");
   });
 
+  it("treats a declined attempt as dead, not pending", async () => {
+    const w = await linked({ recordOn: "captured" });
+    w.pay({ type: "ach", status: "declined" });
+    expect(await syncPayment(w.deps, "pay1")).toMatchObject({ status: "declined", providerStatus: "declined" });
+    expect(w.fbCalls.create).toBe(0);
+    expect(await w.store.getLedger("pay1")).toBeNull();
+  });
+
   it("can post on capture when configured", async () => {
     const w = await linked({ recordOn: "captured" });
     w.pay({ status: "captured" });
