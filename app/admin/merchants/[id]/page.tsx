@@ -34,25 +34,26 @@ export default async function MerchantPage({ params, searchParams }: { params: P
     <main>
       <h1>{m.name}</h1>
       <p className="sub">
-        <span className={`pill ${m.status === "active" ? "ok" : m.status === "paused" ? "bad" : "warn"}`}>{m.status}</span>{" "}
-        <span className="mono muted">{m.pcBaseUrl.includes("stage") ? "demo site" : "live site"} · {m.pcSiteId}</span>
+        <span className={`pill ${m.status === "active" ? "ok" : m.status === "paused" ? "" : "warn"}`}>{m.status === "active" ? "Live" : m.status === "paused" ? "Paused" : "In setup"}</span>{" "}
+        <span className={`pill ${m.pcBaseUrl.includes("stage") ? "" : "gold"}`}>{m.pcBaseUrl.includes("stage") ? "Demo site" : "Production site"}</span>{" "}
+        <span className="mono muted small">{m.pcSiteId || "no Pay Center site yet"}</span>
       </p>
       {msg && <div className="flash">{msg}</div>}
       {err && <div className="flash bad">{err}</div>}
 
       <div className="card">
-        <h2 style={{ marginTop: 0 }}>Setup</h2>
+        <h2 style={{ marginTop: 0 }}>Setup checklist</h2>
         <ul className="check">
           <li><span className={`dot ${tokenSource ? "ok" : "warn"}`} /><span>Pay Center access {tokenSource === "site" ? "via this site's token" : tokenSource === "agency" ? "via the PBS agency token" : "missing — add a site token in Settings below"}</span></li>
           <li><span className={`dot ${fbTokens ? "ok" : "warn"}`} /><span>FreshBooks {fbTokens ? <>connected (account <code>{m.fbAccountId}</code>)</> : "not connected"}</span></li>
           <li><span className={`dot ${verified >= 4 ? "ok" : callbacks > 0 ? "warn" : ""}`} /><span>Invoice webhooks: {verified} of 4 verified{callbacks > verified ? ` (${callbacks - verified} waiting on FreshBooks)` : ""}</span></li>
-          <li><span className={`dot ${m.status === "active" ? "ok" : "warn"}`} /><span>Status {m.status}{ready && m.status !== "active" ? " — everything is in place; set it to active in Settings" : ""}</span></li>
+          <li><span className={`dot ${m.status === "active" ? "ok" : "warn"}`} /><span>{m.status === "active" ? "Live — invoices sync automatically" : ready ? "Ready to go live — set Status to Live in Settings" : `Status: ${m.status === "paused" ? "paused" : "in setup"} (invoices are ignored)`}</span></li>
         </ul>
         <div className="row" style={{ marginTop: 12 }}>
-          <a className="btn" href={`/api/freshbooks/oauth/start?merchant=${m.id}`}>Connect FreshBooks myself</a>
-          <form action={makeConnectLink}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Create a connect link for the merchant</button></form>
+          <a className="btn" href={`/api/freshbooks/oauth/start?merchant=${m.id}`}>Connect FreshBooks (I have the login)</a>
+          <form action={makeConnectLink}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Create a link for the merchant</button></form>
           {fbTokens && <form action={registerMerchantWebhooks}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Register webhooks</button></form>}
-          {ready && <form action={recheckPayments}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Re-check payments (7 days)</button></form>}
+          {ready && <form action={recheckPayments}><input type="hidden" name="id" value={m.id} /><button className="btn" type="submit">Re-check payments (last 7 days)</button></form>}
         </div>
         {ready && (
           <form action={pushInvoice} className="row" style={{ marginTop: 12 }}>
@@ -75,7 +76,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
 
       {held.length > 0 && (
         <div className="card">
-          <h2 style={{ marginTop: 0, color: "var(--warn)" }}>Needs attention ({held.length})</h2>
+          <h2 style={{ marginTop: 0, color: "var(--bad)" }}>Needs a person ({held.length})</h2>
           <table>
             <thead><tr><th>Pay Center payment</th><th>State</th><th>Why</th><th>Resolve</th></tr></thead>
             <tbody>
@@ -107,8 +108,8 @@ export default async function MerchantPage({ params, searchParams }: { params: P
             <div>
               <label htmlFor="status">Status</label>
               <select id="status" name="status" defaultValue={m.status}>
-                <option value="setup">Setup (ignore invoices)</option>
-                <option value="active">Active</option>
+                <option value="setup">In setup (ignore invoices)</option>
+                <option value="active">Live</option>
                 <option value="paused">Paused</option>
               </select>
             </div>
@@ -133,7 +134,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
                 <tr key={i.fb_invoice_id}>
                   <td>{i.invoice_number} <span className="muted small">(id {i.fb_invoice_id})</span></td>
                   <td>{money(Number(i.total_cents))}</td>
-                  <td>{i.pay_link ? <a href={i.pay_link} target="_blank" rel="noreferrer">open</a> : <span className="muted">sent by Pay Center</span>}</td>
+                  <td>{i.pay_link ? <a href={i.pay_link} target="_blank" rel="noreferrer">open</a> : <span className="pill">Sent by Pay Center</span>}</td>
                   <td className="small muted">{when(i.updated_at)}</td>
                 </tr>
               ))}
