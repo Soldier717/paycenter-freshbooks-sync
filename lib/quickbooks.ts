@@ -48,13 +48,16 @@ async function raw(method: string, url: string, headers: Record<string, string>,
     throw new ProviderError("QuickBooks did not respond", false);
   }
   const text = await res.text();
+  // Intuit's request id. Their support asks for it when troubleshooting, so every error carries it.
+  const tid = res.headers.get("intuit_tid");
   let json: any = null;
   try { json = text ? JSON.parse(text) : {}; } catch { json = null; }
   if (!res.ok) {
     const fault = (json as QbFault)?.Fault?.Error?.[0];
     const msg = fault ? `${fault.Message ?? "error"}${fault.Detail ? `: ${fault.Detail}` : ""} (code ${fault.code ?? res.status})` : `HTTP ${res.status}`;
-    const err = new ProviderError(`QuickBooks ${msg}`, res.status >= 400 && res.status < 500, res.status);
+    const err = new ProviderError(`QuickBooks ${msg}${tid ? ` [intuit_tid ${tid}]` : ""}`, res.status >= 400 && res.status < 500, res.status);
     (err as any).qbCode = fault?.code;
+    (err as any).intuitTid = tid;
     throw err;
   }
   if (json === null) throw new ProviderError("QuickBooks returned an unreadable response", false);
