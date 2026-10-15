@@ -1,22 +1,23 @@
 import { open, seal } from "./crypto";
 import { db } from "./merchants";
-import { FbTokens, InvoiceLink, LedgerRow, Store } from "./types";
+import { InvoiceLink, LedgerRow, OAuthTokens, Store } from "./types";
 
+// Column names predate QuickBooks support: fb_invoice_id / fb_payment_id hold the id from whichever accounting system the merchant uses.
 const toLink = (r: any): InvoiceLink => ({
-  fbInvoiceId: String(r.fb_invoice_id), pcInvoiceId: r.pc_invoice_id, invoiceNumber: r.invoice_number ?? "",
+  acctInvoiceId: String(r.fb_invoice_id), pcInvoiceId: r.pc_invoice_id, invoiceNumber: r.invoice_number ?? "",
   totalCents: Number(r.total_cents), fingerprint: r.fingerprint, payLink: r.pay_link,
 });
 const toRow = (r: any): LedgerRow => ({
   pcPaymentId: r.pc_payment_id, pcInvoiceId: r.pc_invoice_id, kind: r.kind, state: r.state,
-  fbPaymentId: r.fb_payment_id, cents: Number(r.cents), reason: r.reason,
+  acctPaymentId: r.fb_payment_id, cents: Number(r.cents), feeCents: Number(r.fee_cents ?? 0), feeTxnId: r.fee_txn_id ?? null, reason: r.reason,
 });
 const linkCols: Record<string, string> = {
-  fbInvoiceId: "fb_invoice_id", pcInvoiceId: "pc_invoice_id", invoiceNumber: "invoice_number",
+  acctInvoiceId: "fb_invoice_id", pcInvoiceId: "pc_invoice_id", invoiceNumber: "invoice_number",
   totalCents: "total_cents", fingerprint: "fingerprint", payLink: "pay_link",
 };
 const rowCols: Record<string, string> = {
   pcPaymentId: "pc_payment_id", pcInvoiceId: "pc_invoice_id", kind: "kind", state: "state",
-  fbPaymentId: "fb_payment_id", cents: "cents", reason: "reason",
+  acctPaymentId: "fb_payment_id", cents: "cents", feeCents: "fee_cents", feeTxnId: "fee_txn_id", reason: "reason",
 };
 const rename = (o: Record<string, unknown>, map: Record<string, string>) =>
   Object.fromEntries(Object.entries(o).map(([k, v]) => [map[k], v]));
@@ -26,7 +27,7 @@ function ok<T>(res: { data: T; error: { message: string } | null }): T {
   return res.data;
 }
 
-/** All reads and writes are scoped to one merchant. FreshBooks tokens are encrypted at rest. */
+/** All reads and writes are scoped to one merchant. Accounting tokens are encrypted at rest. */
 export function merchantStore(merchantId: string): Store {
   const m = merchantId;
   const now = () => new Date().toISOString();
@@ -36,14 +37,18 @@ export function merchantStore(merchantId: string): Store {
       const r: any = ok(await db().from("fb_tokens").select("*").eq("merchant_id", m).maybeSingle());
       if (!r) return null;
       try {
-        return { accessToken: open(r.access_token), refreshToken: open(r.refresh_token), expiresAt: new Date(r.expires_at).getTime() };
+        return {
+          accessToken: open(r.access_token), refreshToken: open(r.refresh_token), expiresAt: new Date(r.expires_at).getTime(),
+          refreshExpiresAt: r.refresh_expires_at ? new Date(r.refresh_expires_at).getTime() : null,
+        };
       } catch {
         return null; // a row from before tokens were encrypted: treat as not connected
       }
     },
-    async saveTokens(t: FbTokens) {
+    async saveTokens(t: OAuthTokens) {
       ok(await db().from("fb_tokens").upsert({
         merchant_id: m, access_token: seal(t.accessToken), refresh_token: seal(t.refreshToken), expires_at: new Date(t.expiresAt).toISOString(),
+        refresh_expires_at: t.refreshExpiresAt ? new Date(t.refreshExpiresAt).toISOString() : null,
       }));
     },
     async getKv(key) {
@@ -53,7 +58,7 @@ export function merchantStore(merchantId: string): Store {
     async setKv(key, value) {
       ok(await db().from("sync_state").upsert({ merchant_id: m, key, value }));
     },
-    async getLinkByFb(id) {
+    async getLinkByAcct(id) {
       const r = ok(await db().from("invoice_map").select("*").eq("merchant_id", m).eq("fb_invoice_id", id).maybeSingle());
       return r ? toLink(r) : null;
     },

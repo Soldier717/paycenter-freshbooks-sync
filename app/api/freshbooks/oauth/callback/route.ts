@@ -2,7 +2,7 @@ import { appUrl } from "@/lib/config";
 import { verify } from "@/lib/crypto";
 import { oauthApp, storeFor } from "@/lib/deps";
 import { listAccounts, requestTokens } from "@/lib/freshbooks";
-import { getMerchant, merchantByFbAccount, updateMerchant } from "@/lib/merchants";
+import { getMerchant, merchantByAcctAccount, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,7 @@ export async function GET(req: Request) {
 
   const m = await getMerchant(state.m);
   if (!m) return page("Unknown merchant", "<p>This connect link does not match a merchant.</p>", 404);
+  if (m.accounting !== "freshbooks") return page("Wrong system", `<p><b>${m.name}</b> is set up for QuickBooks, not FreshBooks.</p>`, 400);
   const who = state.who === "merchant" ? "merchant" : "admin";
   const adminLink = `${appUrl()}/admin/merchants/${m.id}`;
 
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
   const accounts = await listAccounts(tokens.accessToken);
 
   // Bind the merchant to exactly one FreshBooks account, and never silently to a different one.
-  let accountId = m.fbAccountId;
+  let accountId = m.acctAccountId;
   if (accountId) {
     if (!accounts.some((a) => a.accountId === accountId))
       return page("Wrong FreshBooks login",
@@ -35,14 +36,14 @@ export async function GET(req: Request) {
          <p>Please sign out of FreshBooks and try again with the right login.</p>`, 403);
   } else if (accounts.length === 1) {
     accountId = accounts[0].accountId;
-    const other = await merchantByFbAccount(accountId);
+    const other = await merchantByAcctAccount("freshbooks", accountId);
     if (other && other.id !== m.id)
       return page("Already connected elsewhere",
         `<p>This FreshBooks account (<code>${accountId}</code>, ${accounts[0].name}) is already connected to <b>${other.name}</b>.</p>
          <p>${who === "admin"
            ? `Sign in with a different FreshBooks login for <b>${m.name}</b>, or clear the FreshBooks account id on <a href="${appUrl()}/admin/merchants/${other.id}">${other.name}</a> first and try again.`
            : "Please tell Priority Business Solutions; this login is already in use for another business."}</p>`, 409);
-    await updateMerchant(m.id, { fbAccountId: accountId });
+    await updateMerchant(m.id, { acctAccountId: accountId });
   } else {
     const list = accounts.map((a) => `<li><code>${a.accountId}</code> — ${a.name}</li>`).join("");
     return page("Which business?",
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
 
   let webhookNote = "";
   try {
-    if ((await s.countCallbacks()) === 0) await registerWebhooks({ ...m, fbAccountId: accountId });
+    if ((await s.countCallbacks()) === 0) await registerWebhooks({ ...m, acctAccountId: accountId });
   } catch (err) {
     webhookNote = `<p style="color:#b00">Connected, but the invoice webhooks could not be registered: ${String(err)}. Use "Register webhooks" on the merchant page.</p>`;
     await s.log("error", "Webhook registration failed after connect", { error: String(err) });

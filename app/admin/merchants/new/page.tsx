@@ -1,7 +1,8 @@
 import { requireAdmin } from "@/lib/admin-session";
 import { agency } from "@/lib/paycenter-agency";
 import { addMerchant } from "../../actions";
-import { SettingsFields } from "../settings-fields";
+import { qbConfigured } from "@/lib/quickbooks";
+import { QuickBooksFields, SettingsFields } from "../settings-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -9,12 +10,13 @@ export default async function NewMerchant({ searchParams }: { searchParams: Prom
   await requireAdmin();
   const { error } = await searchParams;
   const ag = agency();
+  const qbProd = qbConfigured("production"), qbSandbox = qbConfigured("sandbox");
   return (
     <main style={{ maxWidth: 640 }}>
       <h1>Add merchant</h1>
       <p className="sub">
         {ag ? "A Pay Center site is created under the PBS agency automatically, or paste an existing site id." : "Pay Center details come from the merchant's Pay Center site."}{" "}
-        FreshBooks is connected in the next step.
+        The accounting system is connected in the next step.
       </p>
       {error && <div className="flash bad">{error}</div>}
       <form action={addMerchant} className="card">
@@ -53,11 +55,24 @@ export default async function NewMerchant({ searchParams }: { searchParams: Prom
         <input id="pcAccessToken" name="pcAccessToken" type="password" autoComplete="off" className="mono" />
         <div className="small muted">Stored encrypted. {ag ? "Not needed for sites under the PBS agency." : "Can be added later."}</div>
 
-        <h2>FreshBooks</h2>
-        <label htmlFor="fbAccountId">Account id (optional)</label>
-        <input id="fbAccountId" name="fbAccountId" className="mono" placeholder="Filled in automatically when the merchant connects" />
+        <h2>Accounting system</h2>
+        <label htmlFor="accounting">Invoices come from</label>
+        <select id="accounting" name="accounting" defaultValue="freshbooks">
+          <option value="freshbooks">FreshBooks</option>
+          <option value="quickbooks" disabled={!qbProd && !qbSandbox}>QuickBooks Online{!qbProd && !qbSandbox ? " (keys not configured)" : ""}</option>
+        </select>
+        <label htmlFor="qbEnv">QuickBooks keys (QuickBooks only)</label>
+        <select id="qbEnv" name="qbEnv" defaultValue={qbProd ? "production" : "sandbox"}>
+          <option value="production" disabled={!qbProd}>Production (real company){qbProd ? "" : " — not configured"}</option>
+          <option value="sandbox" disabled={!qbSandbox}>Sandbox (Intuit test company){qbSandbox ? "" : " — not configured"}</option>
+        </select>
+        <label htmlFor="acctAccountId">Account / company id (optional)</label>
+        <input id="acctAccountId" name="acctAccountId" className="mono" placeholder="Filled in automatically when the merchant connects" />
         <h2>Rules</h2>
         <SettingsFields />
+        <h3>QuickBooks only</h3>
+        <QuickBooksFields connected={false} accounts={[]} items={[]} />
+        <div className="small muted">Deposit account and fee item are chosen on the merchant page once QuickBooks is connected.</div>
         <div style={{ marginTop: 18 }}><button className="btn primary" type="submit">Create merchant</button></div>
       </form>
     </main>

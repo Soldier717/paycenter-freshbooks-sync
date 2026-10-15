@@ -21,11 +21,18 @@ function ok<T>(res: { data: T; error: { message: string } | null }): T {
 
 function toMerchant(r: any): Merchant {
   return {
-    id: r.id, name: r.name, status: r.status, fbAccountId: r.fb_account_id,
+    id: r.id, name: r.name, status: r.status,
+    accounting: r.accounting === "quickbooks" ? "quickbooks" : "freshbooks",
+    acctAccountId: r.fb_account_id,
     pcBaseUrl: r.pc_base_url, pcSiteId: r.pc_site_id,
     pcAccessToken: r.pc_access_token_enc ? open(r.pc_access_token_enc) : null,
     pcWebhookSecret: r.pc_webhook_secret,
     notifyMode: r.notify_mode, recordOn: r.record_on, reversals: r.reversals,
+    bookFees: !!r.book_fees,
+    qbTrigger: r.qb_trigger === "sent" ? "sent" : "open",
+    qbEnv: r.qb_env === "sandbox" ? "sandbox" : "production",
+    qbDepositAccountId: r.qb_deposit_account_id ?? null,
+    qbFeeItemId: r.qb_fee_item_id ?? null,
     connectToken: r.connect_token, connectExpiresAt: r.connect_expires_at ? new Date(r.connect_expires_at).getTime() : null,
     createdAt: r.created_at,
   };
@@ -36,10 +43,16 @@ export interface MerchantInput {
   pcBaseUrl: string;
   pcSiteId: string;
   pcAccessToken?: string | null;
-  fbAccountId?: string | null;
+  accounting?: Merchant["accounting"];
+  acctAccountId?: string | null;
   notifyMode: "link" | "customer";
   recordOn: "settled" | "captured";
   reversals: "review" | "auto";
+  bookFees?: boolean;
+  qbTrigger?: Merchant["qbTrigger"];
+  qbEnv?: Merchant["qbEnv"];
+  qbDepositAccountId?: string | null;
+  qbFeeItemId?: string | null;
   status?: Merchant["status"];
 }
 
@@ -58,7 +71,7 @@ export async function listMerchants(): Promise<MerchantSummary[]> {
   const usable = (tokens ?? []).filter((t) => { try { open(t.access_token); return true; } catch { return false; } });
   return rows.map((r) => ({
     ...toMerchant(r),
-    fbConnected: count(usable, r.id) > 0,
+    acctConnected: count(usable, r.id) > 0,
     webhooksRegistered: count(callbacks ?? [], r.id),
     attention: count(attention ?? [], r.id),
     invoices: count(invoices ?? [], r.id),
@@ -70,8 +83,10 @@ export async function getMerchant(id: string): Promise<Merchant | null> {
   return r ? toMerchant(r) : null;
 }
 
-export async function merchantByFbAccount(accountId: string): Promise<Merchant | null> {
-  const r = ok(await db().from("merchants").select("*").eq("fb_account_id", accountId).maybeSingle());
+/** The merchant connected to a FreshBooks account id or a QuickBooks realm id. */
+export async function merchantByAcctAccount(kind: Merchant["accounting"], accountId: string): Promise<Merchant | null> {
+  if (!accountId) return null;
+  const r = ok(await db().from("merchants").select("*").eq("accounting", kind).eq("fb_account_id", accountId).maybeSingle());
   return r ? toMerchant(r) : null;
 }
 
@@ -105,12 +120,18 @@ export async function createMerchant(input: MerchantInput): Promise<Merchant> {
   const r = ok(await db().from("merchants").insert({
     name: input.name.trim(),
     status: input.status ?? "setup",
-    fb_account_id: input.fbAccountId?.trim() || null,
+    accounting: input.accounting ?? "freshbooks",
+    fb_account_id: input.acctAccountId?.trim() || null,
     pc_base_url: input.pcBaseUrl.trim().replace(/\/+$/, ""),
     pc_site_id: input.pcSiteId.trim(),
     pc_access_token_enc: input.pcAccessToken ? seal(cleanToken(input.pcAccessToken)) : null,
     pc_webhook_secret: randomSecret(),
     notify_mode: input.notifyMode, record_on: input.recordOn, reversals: input.reversals,
+    book_fees: input.bookFees ?? false,
+    qb_trigger: input.qbTrigger ?? "open",
+    qb_env: input.qbEnv ?? "production",
+    qb_deposit_account_id: input.qbDepositAccountId ?? null,
+    qb_fee_item_id: input.qbFeeItemId ?? null,
   }).select("*").single());
   return toMerchant(r);
 }
@@ -119,17 +140,23 @@ export async function updateMerchant(id: string, patch: Partial<MerchantInput>):
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (patch.name !== undefined) row.name = patch.name.trim();
   if (patch.status !== undefined) row.status = patch.status;
-  if (patch.fbAccountId !== undefined) row.fb_account_id = patch.fbAccountId?.trim() || null;
+  if (patch.accounting !== undefined) row.accounting = patch.accounting;
+  if (patch.acctAccountId !== undefined) row.fb_account_id = patch.acctAccountId?.trim() || null;
   if (patch.pcBaseUrl !== undefined) row.pc_base_url = patch.pcBaseUrl.trim().replace(/\/+$/, "");
   if (patch.pcSiteId !== undefined) row.pc_site_id = patch.pcSiteId.trim();
   if (patch.pcAccessToken) row.pc_access_token_enc = seal(cleanToken(patch.pcAccessToken));
   if (patch.notifyMode !== undefined) row.notify_mode = patch.notifyMode;
   if (patch.recordOn !== undefined) row.record_on = patch.recordOn;
   if (patch.reversals !== undefined) row.reversals = patch.reversals;
+  if (patch.bookFees !== undefined) row.book_fees = patch.bookFees;
+  if (patch.qbTrigger !== undefined) row.qb_trigger = patch.qbTrigger;
+  if (patch.qbEnv !== undefined) row.qb_env = patch.qbEnv;
+  if (patch.qbDepositAccountId !== undefined) row.qb_deposit_account_id = patch.qbDepositAccountId || null;
+  if (patch.qbFeeItemId !== undefined) row.qb_fee_item_id = patch.qbFeeItemId || null;
   ok(await db().from("merchants").update(row).eq("id", id));
 }
 
-/** A link the merchant opens to approve FreshBooks access. Valid for 7 days. */
+/** A link the merchant opens to approve accounting access. Valid for 7 days. */
 export async function issueConnectToken(id: string): Promise<string> {
   const token = randomSecret(24);
   ok(await db().from("merchants").update({

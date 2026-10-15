@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 // Admin:    /api/freshbooks/oauth/start?merchant=<id>          (admin cookie or ?key=)
 // Merchant: /api/freshbooks/oauth/start?connect=<connect token>
+// authorizeUrl picks FreshBooks or QuickBooks from the merchant, so this one route serves both.
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const connect = url.searchParams.get("connect");
