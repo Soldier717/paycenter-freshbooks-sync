@@ -66,6 +66,11 @@ export function merchantStore(merchantId: string): Store {
       const r = ok(await db().from("invoice_map").select("*").eq("merchant_id", m).eq("pc_invoice_id", id).maybeSingle());
       return r ? toLink(r) : null;
     },
+    async linkedElsewhere(id) {
+      const res = await db().from("invoice_map").select("merchant_id", { count: "exact", head: true }).eq("pc_invoice_id", id).neq("merchant_id", m);
+      if (res.error) throw new Error(`Database error: ${res.error.message}`);
+      return (res.count ?? 0) > 0;
+    },
     async insertLink(link) {
       ok(await db().from("invoice_map").insert({ merchant_id: m, ...rename({ ...link }, linkCols) }));
     },

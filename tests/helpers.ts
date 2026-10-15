@@ -14,6 +14,7 @@ export function memoryStore() {
     setKv: async (k, v) => void kv.set(k, v),
     getLinkByAcct: async (id) => links.find((l) => l.acctInvoiceId === id) ?? null,
     getLinkByPc: async (id) => links.find((l) => l.pcInvoiceId === id) ?? null,
+    linkedElsewhere: async () => false,
     insertLink: async (l) => void links.push({ ...l }),
     updateLink: async (id, patch) => void Object.assign(links.find((l) => l.acctInvoiceId === id)!, patch),
     getLedger: async (id) => (ledger.has(id) ? { ...ledger.get(id)! } : null),

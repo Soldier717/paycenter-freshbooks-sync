@@ -188,7 +188,11 @@ export async function syncPayment(deps: Deps, pcPaymentId: string): Promise<Resu
     return hold(deps, p, "Invoice allocation is not a valid amount");
 
   const link = await store.getLinkByPc(allocs[0].ref);
-  if (!link) return hold(deps, p, "Payment is for an invoice this service did not create", allocs[0].ref);
+  if (!link) {
+    // Two merchants can share one Pay Center site; the other merchant's payments are theirs to handle.
+    if (await store.linkedElsewhere(allocs[0].ref)) return { status: "ignored", reason: "Invoice belongs to another merchant on this site" };
+    return hold(deps, p, "Payment is for an invoice this service did not create", allocs[0].ref);
+  }
 
   const inv = await acct.getInvoice(link.acctInvoiceId);
   if (inv.deleted || inv.currency !== "USD")

@@ -82,6 +82,8 @@ export interface Store {
 
   getLinkByAcct(acctInvoiceId: string): Promise<InvoiceLink | null>;
   getLinkByPc(pcInvoiceId: string): Promise<InvoiceLink | null>;
+  /** True when another merchant on the same Pay Center site created this invoice (sites can be shared). */
+  linkedElsewhere(pcInvoiceId: string): Promise<boolean>;
   insertLink(link: InvoiceLink): Promise<void>;
   updateLink(acctInvoiceId: string, patch: Partial<InvoiceLink>): Promise<void>;
 
