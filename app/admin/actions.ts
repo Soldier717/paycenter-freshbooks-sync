@@ -36,10 +36,16 @@ export async function addMerchant(form: FormData) {
   await guard();
   const name = str(form, "name");
   const ag = agency();
-  const create = !!ag && str(form, "siteMode") !== "existing";
   const pcSiteId = str(form, "pcSiteId");
+  // A site id typed in always means "use that site", whatever the dropdown says.
+  const create = !!ag && str(form, "siteMode") !== "existing" && !pcSiteId;
   if (!name) redirect("/admin/merchants/new?error=" + encodeURIComponent("Merchant name is required"));
   if (!create && !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Enter the Pay Center site id, or choose to create a new site"));
+  if (create) {
+    const missing = ["addressLine1", "city", "stateCode", "zipCode"].filter((k) => !str(form, k));
+    if (missing.length)
+      redirect("/admin/merchants/new?error=" + encodeURIComponent("Pay Center needs the business address (street, city, state, ZIP) to create a site. Fill it in, or choose an existing site."));
+  }
   const accounting = pick(str(form, "accounting"), ["freshbooks", "quickbooks"] as const, "freshbooks");
   const qbEnv = pick(str(form, "qbEnv"), ["production", "sandbox"] as const, "production");
   if (accounting === "quickbooks" && !qbConfigured(qbEnv))
