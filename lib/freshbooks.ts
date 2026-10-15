@@ -1,5 +1,20 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { FbClientInfo, FbInvoice, FbTokens, FreshBooksApi, ProviderError, Store } from "./types";
+import { toCents, toDecimal } from "./money";
+import { AccountingApi, AcctInvoice, OAuthTokens, ProviderError, Store } from "./types";
+
+/** FreshBooks' own invoice shape (the fields this service reads). */
+interface FbInvoice {
+  id?: number;
+  invoiceid: number;
+  invoice_number: string;
+  v3_status: string;
+  vis_state: number;
+  amount: { amount: string; code: string };
+  outstanding: { amount: string; code: string };
+  due_date: string;
+  customerid?: number;
+}
+interface FbClientInfo { fname?: string; lname?: string; email?: string; mob_phone?: string }
 
 const API = "https://api.freshbooks.com";
 export const AUTHORIZE_URL = "https://auth.freshbooks.com/oauth/authorize";
@@ -33,7 +48,7 @@ async function raw(method: string, url: string, token: string | null, body?: unk
   }
 }
 
-export async function requestTokens(app: OAuthApp, grant: Record<string, string>): Promise<FbTokens> {
+export async function requestTokens(app: OAuthApp, grant: Record<string, string>): Promise<OAuthTokens> {
   const r = await raw("POST", `${API}/auth/oauth/token`, null, {
     ...grant, client_id: app.clientId, client_secret: app.clientSecret, redirect_uri: app.redirectUri,
   });
@@ -64,33 +79,58 @@ export async function listAccounts(token: string): Promise<{ accountId: string; 
     .filter((a) => a.accountId);
 }
 
-export function freshBooks(store: Store, app: OAuthApp, accountId: string): FreshBooksApi {
+export function freshBooks(store: Store, app: OAuthApp, accountId: string): AccountingApi {
   const base = `${API}/accounting/account/${encodeURIComponent(accountId)}`;
   const call = async (method: string, path: string, body?: unknown) =>
     (await raw(method, base + path, await accessToken(store, app), body))?.response?.result ?? {};
 
+  const toAcct = (inv: FbInvoice): AcctInvoice => ({
+    id: String(inv.invoiceid),
+    number: String(inv.invoice_number),
+    currency: inv.amount.code,
+    totalCents: toCents(inv.amount.amount),
+    balanceCents: toCents(inv.outstanding.amount),
+    dueDate: String(inv.due_date).slice(0, 10),
+    customerId: inv.customerid ? String(inv.customerid) : null,
+    deleted: inv.vis_state !== 0,
+    sendable: ["sent", "viewed", "overdue"].includes(inv.v3_status),
+    status: inv.v3_status,
+  });
+
   return {
+    kind: "freshbooks",
     accountId,
     async getInvoice(id) {
       const inv = (await call("GET", `/invoices/invoices/${encodeURIComponent(id)}`)).invoice as FbInvoice;
       if (!inv) throw new ProviderError("FreshBooks returned no invoice", false);
-      return { ...inv, invoiceid: inv.invoiceid ?? inv.id! };
+      return toAcct({ ...inv, invoiceid: inv.invoiceid ?? inv.id! });
     },
-    async getClient(id) {
-      return ((await call("GET", `/users/clients/${encodeURIComponent(id)}`)).client ?? {}) as FbClientInfo;
+    async getCustomer(id) {
+      const c = ((await call("GET", `/users/clients/${encodeURIComponent(id)}`)).client ?? {}) as FbClientInfo;
+      return { firstName: c.fname, lastName: c.lname, email: c.email, mobilePhone: c.mob_phone };
     },
-    async createPayment(body) {
-      const p = (await call("POST", "/payments/payments", { payment: body })).payment;
+    async createPayment(input) {
+      const p = (await call("POST", "/payments/payments", {
+        payment: {
+          invoiceid: Number(input.invoiceId),
+          amount: { amount: toDecimal(input.cents), code: "USD" },
+          date: input.date,
+          type: "Other",
+          note: input.note,
+          send_client_notification: false,
+        },
+      })).payment;
       const id = p?.id ?? p?.logid;
       if (!id) throw new ProviderError("FreshBooks returned no payment id", false);
       return { id: String(id) };
     },
-    async updatePaymentAmount(id, amount) {
-      await call("PUT", `/payments/payments/${encodeURIComponent(id)}`, { payment: { amount } });
+    async updatePaymentAmount(id, cents) {
+      await call("PUT", `/payments/payments/${encodeURIComponent(id)}`, { payment: { amount: { amount: toDecimal(cents), code: "USD" } } });
     },
     async deletePayment(id) {
       await call("PUT", `/payments/payments/${encodeURIComponent(id)}`, { payment: { vis_state: 1 } });
     },
+    // Fee booking is not offered for FreshBooks yet (it would be an Other Income entry).
   };
 }
 

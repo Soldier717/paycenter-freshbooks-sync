@@ -24,10 +24,10 @@ describe("invoice -> Pay Center", () => {
 
   it("skips drafts, partly paid, non-USD and deleted invoices", async () => {
     for (const change of [
-      (w: ReturnType<typeof world>) => (w.invoice.v3_status = "draft"),
-      (w: ReturnType<typeof world>) => (w.invoice.outstanding.amount = "50.00"),
-      (w: ReturnType<typeof world>) => (w.invoice.amount.code = "CAD"),
-      (w: ReturnType<typeof world>) => (w.invoice.vis_state = 1),
+      (w: ReturnType<typeof world>) => { w.invoice.sendable = false; w.invoice.status = "draft"; },
+      (w: ReturnType<typeof world>) => (w.invoice.balanceCents = 5000),
+      (w: ReturnType<typeof world>) => (w.invoice.currency = "CAD"),
+      (w: ReturnType<typeof world>) => (w.invoice.deleted = true),
     ]) {
       const w = world();
       change(w);
@@ -39,12 +39,12 @@ describe("invoice -> Pay Center", () => {
   it("pushes an edit before any payment, and stops for review after one", async () => {
     const w = world();
     await syncInvoice(w.deps, "7");
-    w.invoice.due_date = "2026-11-10";
+    w.invoice.dueDate = "2026-11-10";
     expect((await syncInvoice(w.deps, "7")).status).toBe("updated");
     expect(w.pcInvoices).toHaveLength(2);
     w.pay();
     await syncPayment(w.deps, "pay1");
-    w.invoice.due_date = "2026-12-01";
+    w.invoice.dueDate = "2026-12-01";
     expect((await syncInvoice(w.deps, "7")).status).toBe("needs_review");
     expect(w.pcInvoices).toHaveLength(2);
   });
@@ -54,7 +54,7 @@ describe("invoice -> Pay Center", () => {
     await syncInvoice(w.deps, "7");
     w.pay();
     await syncPayment(w.deps, "pay1");
-    w.invoice.v3_status = "paid";
+    w.invoice.status = "paid";
     expect((await syncInvoice(w.deps, "7")).status).toBe("already_linked");
     expect(w.pcInvoices).toHaveLength(1);
   });
@@ -72,17 +72,17 @@ describe("payment -> FreshBooks", () => {
     w.pay(); // paid 103.00, 100.00 allocated to the invoice
     expect(await syncPayment(w.deps, "pay1")).toMatchObject({ status: "posted", cents: 10000 });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("already_posted");
-    expect(w.fbCalls.create).toBe(1);
-    const posted = [...w.fbPayments.values()][0].body;
-    expect(posted).toMatchObject({ invoiceid: 7, amount: { amount: "100.00", code: "USD" }, date: "2026-10-12", type: "Other", send_client_notification: false });
-    expect(w.invoice.outstanding.amount).toBe("0.00");
+    expect(w.acctCalls.create).toBe(1);
+    const posted = [...w.acctPayments.values()][0].body;
+    expect(posted).toMatchObject({ invoiceId: "7", cents: 10000, date: "2026-10-12", method: "card", customerId: "55" });
+    expect(w.invoice.balanceCents).toBe(0);
   });
 
   it("waits for ACH to settle", async () => {
     const w = await linked();
     w.pay({ type: "ach", status: "captured" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("waiting");
-    expect(w.fbCalls.create).toBe(0);
+    expect(w.acctCalls.create).toBe(0);
     w.pay({ type: "ach", status: "settled" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("posted");
   });
@@ -91,7 +91,7 @@ describe("payment -> FreshBooks", () => {
     const w = await linked({ recordOn: "captured" });
     w.pay({ type: "ach", status: "declined" });
     expect(await syncPayment(w.deps, "pay1")).toMatchObject({ status: "declined", providerStatus: "declined" });
-    expect(w.fbCalls.create).toBe(0);
+    expect(w.acctCalls.create).toBe(0);
     expect(await w.store.getLedger("pay1")).toBeNull();
   });
 
@@ -101,7 +101,7 @@ describe("payment -> FreshBooks", () => {
     expect((await syncPayment(w.deps, "pay1")).status).toBe("posted");
     w.pay({ status: "settled" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("already_posted");
-    expect(w.fbCalls.create).toBe(1);
+    expect(w.acctCalls.create).toBe(1);
   });
 
   it("handles partial payments", async () => {
@@ -109,9 +109,9 @@ describe("payment -> FreshBooks", () => {
     w.pay({ amount: 4120, allocations: [{ refType: "Invoice", ref: "pc7", amount: 4000 }] });
     w.pay({ _id: "pay2", amount: 6180, allocations: [{ refType: "Invoice", ref: "pc7", amount: 6000 }] });
     await syncPayment(w.deps, "pay1");
-    expect(w.invoice.outstanding.amount).toBe("60.00");
+    expect(w.invoice.balanceCents).toBe(6000);
     await syncPayment(w.deps, "pay2");
-    expect(w.invoice.outstanding.amount).toBe("0.00");
+    expect(w.invoice.balanceCents).toBe(0);
   });
 
   it("two notifications at once post one payment", async () => {
@@ -119,12 +119,12 @@ describe("payment -> FreshBooks", () => {
     w.pay();
     const results = await Promise.all([syncPayment(w.deps, "pay1"), syncPayment(w.deps, "pay1")]);
     expect(results.map((r) => r.status).sort()).toEqual(["in_progress", "posted"]);
-    expect(w.fbCalls.create).toBe(1);
+    expect(w.acctCalls.create).toBe(1);
   });
 
   it("holds overpayments, unknown invoices, multiple allocations and wrong sites", async () => {
     let w = await linked();
-    w.invoice.outstanding.amount = "20.00";
+    w.invoice.balanceCents = 2000;
     w.pay();
     expect((await syncPayment(w.deps, "pay1")).status).toBe("needs_review");
 
@@ -135,7 +135,7 @@ describe("payment -> FreshBooks", () => {
     w = await linked();
     w.pay({ allocations: [{ refType: "Invoice", ref: "pc7", amount: 5000 }, { refType: "Invoice", ref: "x", amount: 5000 }] });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("needs_review");
-    expect(w.fbCalls.create).toBe(0);
+    expect(w.acctCalls.create).toBe(0);
     expect(await w.deps.store.listAttention()).toHaveLength(1);
 
     w = await linked();
@@ -150,7 +150,7 @@ describe("payment -> FreshBooks", () => {
     expect((await syncPayment(w.deps, "pay1")).status).toBe("uncertain");
     w.fail.create = null;
     expect((await syncPayment(w.deps, "pay1")).status).toBe("needs_review");
-    expect(w.fbCalls.create).toBe(1);
+    expect(w.acctCalls.create).toBe(1);
 
     w = await linked();
     w.pay();
@@ -173,7 +173,7 @@ describe("returns and refunds", () => {
     const w = await posted();
     w.pay({ type: "ach", status: "returned" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("needs_review");
-    expect(w.fbCalls.del).toBe(0);
+    expect(w.acctCalls.del).toBe(0);
     expect(w.ledger.get("pay1")!.state).toBe("review");
   });
 
@@ -182,8 +182,8 @@ describe("returns and refunds", () => {
     w.pay({ type: "ach", status: "returned" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("reversed");
     expect((await syncPayment(w.deps, "pay1")).status).toBe("already_reversed");
-    expect(w.fbCalls.del).toBe(1);
-    expect(w.invoice.outstanding.amount).toBe("100.00");
+    expect(w.acctCalls.del).toBe(1);
+    expect(w.invoice.balanceCents).toBe(10000);
   });
 
   it("ignores a void of a payment that was never posted", async () => {
@@ -197,7 +197,7 @@ describe("returns and refunds", () => {
     const w = await posted();
     w.pay({ _id: "ref1", isRefund: true, origPayment: "pay1", status: "refunded", amount: 2500, allocations: [{ refType: "Invoice", ref: "pc7", amount: 2500 }] });
     expect((await syncPayment(w.deps, "ref1")).status).toBe("needs_review");
-    expect(w.fbCalls.update + w.fbCalls.del).toBe(0);
+    expect(w.acctCalls.update + w.acctCalls.del).toBe(0);
   });
 
   it("in auto mode, a partial refund reduces the payment once and a full refund removes it", async () => {
@@ -205,18 +205,18 @@ describe("returns and refunds", () => {
     w.pay({ _id: "ref1", isRefund: true, origPayment: "pay1", status: "refunded", amount: 2500, allocations: [{ refType: "Invoice", ref: "pc7", amount: 2500 }] });
     expect(await syncPayment(w.deps, "ref1")).toMatchObject({ status: "refund_applied", remainingCents: 7500 });
     expect((await syncPayment(w.deps, "ref1")).status).toBe("already_applied");
-    expect(w.fbCalls.update).toBe(1);
-    expect(w.invoice.outstanding.amount).toBe("25.00");
+    expect(w.acctCalls.update).toBe(1);
+    expect(w.invoice.balanceCents).toBe(2500);
     w.pay({ _id: "ref2", isRefund: true, origPayment: "pay1", status: "refundSettled", amount: 7500, allocations: [{ refType: "Invoice", ref: "pc7", amount: 7500 }] });
     expect(await syncPayment(w.deps, "ref2")).toMatchObject({ status: "refund_applied", remainingCents: 0 });
-    expect(w.invoice.outstanding.amount).toBe("100.00");
+    expect(w.invoice.balanceCents).toBe(10000);
   });
 
   it("does nothing for the original payment when it is marked refunded", async () => {
     const w = await posted({ reversals: "auto" });
     w.pay({ type: "ach", status: "refunded" });
     expect((await syncPayment(w.deps, "pay1")).status).toBe("ignored");
-    expect(w.fbCalls.del).toBe(0);
+    expect(w.acctCalls.del).toBe(0);
   });
 });
 
@@ -228,7 +228,7 @@ describe("reconcile and helpers", () => {
     expect(await reconcile(w.deps)).toMatchObject({ counts: { posted: 1 } });
     expect(await reconcile(w.deps)).toMatchObject({ counts: { already_posted: 1 } });
     expect(w.kv.get("pc_payments_cursor")).toBe("2026-10-12T00:00:00.000Z");
-    expect(w.fbCalls.create).toBe(1);
+    expect(w.acctCalls.create).toBe(1);
   });
 
   it("a full re-check leaves the saved position alone", async () => {

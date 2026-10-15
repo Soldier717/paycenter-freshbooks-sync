@@ -12,6 +12,6 @@ describe("items a person resolved", () => {
     expect((await syncPayment(w.deps, "pay1")).status).toBe("needs_review");
     await w.deps.store.resolveLedger("pay1", "Reversed in FreshBooks by hand");
     expect((await syncPayment(w.deps, "pay1")).status).toBe("resolved");
-    expect(w.fbCalls.del).toBe(0);
+    expect(w.acctCalls.del).toBe(0);
   });
 });

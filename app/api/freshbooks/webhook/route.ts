@@ -1,6 +1,6 @@
 import { depsFor, MerchantNotReady, oauthApp, storeFor } from "@/lib/deps";
 import { confirmCallback, safeEqual, webhookSignature } from "@/lib/freshbooks";
-import { merchantByCallbackId, merchantByFbAccount } from "@/lib/merchants";
+import { merchantByAcctAccount, merchantByCallbackId } from "@/lib/merchants";
 import { syncInvoice } from "@/lib/sync";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +15,11 @@ export async function POST(req: Request) {
     if (!m) return Response.json({ error: "Unknown callback" }, { status: 403 });
     const s = storeFor(m);
     if (!(await s.setVerifier(get("object_id"), get("verifier")))) return Response.json({ error: "Already verified" }, { status: 403 });
-    await confirmCallback(s, oauthApp(), m.fbAccountId!, get("object_id"), get("verifier"));
+    await confirmCallback(s, oauthApp(), m.acctAccountId!, get("object_id"), get("verifier"));
     return Response.json({ status: "verified" });
   }
 
-  const m = await merchantByFbAccount(get("account_id"));
+  const m = await merchantByAcctAccount("freshbooks", get("account_id"));
   if (!m) return Response.json({ status: "ignored", reason: "No merchant for this account" });
   const s = storeFor(m);
   const signature = req.headers.get("x-freshbooks-hmac-sha256") ?? "";

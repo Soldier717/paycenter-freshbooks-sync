@@ -28,7 +28,7 @@ export default async function Merchants() {
       </div>
       <div className="card" style={{ padding: 0 }}>
         <table>
-          <thead><tr><th>Merchant</th><th>Status</th><th>FreshBooks</th><th>Webhooks</th><th>Invoices</th><th>Attention</th></tr></thead>
+          <thead><tr><th>Merchant</th><th>Status</th><th>Accounting</th><th>Webhooks</th><th>Invoices</th><th>Attention</th></tr></thead>
           <tbody>
             {merchants.length === 0 && <tr><td colSpan={6} className="muted">No merchants yet. <a href="/admin/merchants/new">Add the first one.</a></td></tr>}
             {merchants.map((m) => (
@@ -38,8 +38,8 @@ export default async function Merchants() {
                   <div className="small muted mono">{m.pcBaseUrl.includes("stage") ? "demo · " : ""}{m.pcSiteId || "no site yet"}</div>
                 </td>
                 <td>{statusPill(m.status)}</td>
-                <td>{m.fbConnected ? <span className="pill ok">Connected</span> : <span className="pill warn">Not connected</span>}</td>
-                <td>{m.webhooksRegistered >= 4 ? <span className="pill ok">Verified</span> : <span className="pill warn">{m.webhooksRegistered} of 4</span>}</td>
+                <td>{m.accounting === "quickbooks" ? "QuickBooks" : "FreshBooks"} {m.acctConnected ? <span className="pill ok">Connected</span> : <span className="pill warn">Not connected</span>}</td>
+                <td>{m.accounting === "quickbooks" ? <span className="pill">App-level</span> : m.webhooksRegistered >= 4 ? <span className="pill ok">Verified</span> : <span className="pill warn">{m.webhooksRegistered} of 4</span>}</td>
                 <td>{m.invoices}</td>
                 <td>{m.attention > 0 ? <span className="pill bad">{m.attention} to review</span> : <span className="muted">—</span>}</td>
               </tr>

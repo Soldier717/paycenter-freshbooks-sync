@@ -2,11 +2,12 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { depsFor, settingsFor, storeFor } from "@/lib/deps";
+import { depsFor, quickBooksClientFor, settingsFor, storeFor, systemName } from "@/lib/deps";
 import { addUpdateSite, agency } from "@/lib/paycenter-agency";
 import { ADMIN_COOKIE, adminCookieValue, hasAdminCookie, isAdminSecret } from "@/lib/guard";
 import { createMerchant, getMerchant, issueConnectToken, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
+import { ensureFeeItem, qbConfigured } from "@/lib/quickbooks";
 import { reconcile, syncInvoice } from "@/lib/sync";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
@@ -39,17 +40,25 @@ export async function addMerchant(form: FormData) {
   const pcSiteId = str(form, "pcSiteId");
   if (!name) redirect("/admin/merchants/new?error=" + encodeURIComponent("Merchant name is required"));
   if (!create && !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Enter the Pay Center site id, or choose to create a new site"));
+  const accounting = pick(str(form, "accounting"), ["freshbooks", "quickbooks"] as const, "freshbooks");
+  const qbEnv = pick(str(form, "qbEnv"), ["production", "sandbox"] as const, "production");
+  if (accounting === "quickbooks" && !qbConfigured(qbEnv))
+    redirect("/admin/merchants/new?error=" + encodeURIComponent(`QuickBooks ${qbEnv} keys are not configured on this server (QUICKBOOKS_${qbEnv === "sandbox" ? "SANDBOX_" : ""}CLIENT_ID)`));
   const m = await createMerchant({
     name,
+    accounting,
+    qbEnv,
+    qbTrigger: pick(str(form, "qbTrigger"), ["open", "sent"] as const, "open"),
+    bookFees: str(form, "bookFees") === "yes",
     pcBaseUrl: create ? ag!.baseUrl : str(form, "pcBaseUrl") || "https://api.paycenter.app",
     pcSiteId: create ? "pending" : pcSiteId,
     pcAccessToken: create ? null : str(form, "pcAccessToken") || null,
-    fbAccountId: str(form, "fbAccountId") || null,
+    acctAccountId: str(form, "acctAccountId") || null,
     notifyMode: pick(str(form, "notifyMode"), ["link", "customer"] as const, "customer"),
     recordOn: pick(str(form, "recordOn"), ["settled", "captured"] as const, "settled"),
     reversals: pick(str(form, "reversals"), ["review", "auto"] as const, "review"),
   });
-  if (!create) redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent("Merchant created. Next: connect FreshBooks.")}`);
+  if (!create) redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent(`Merchant created. Next: connect ${systemName(m)}.`)}`);
 
   // Create the Pay Center site now that we have an id and a webhook secret for it.
   let site;
@@ -67,7 +76,7 @@ export async function addMerchant(form: FormData) {
   }
   await updateMerchant(m.id, { pcSiteId: site!.id });
   await storeFor(m).log("info", `Pay Center site ${site!.action}`, { pcSiteId: site!.id, agency: ag!.id });
-  redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent(`Merchant created with Pay Center site ${site!.id}. Next: connect FreshBooks.`)}`);
+  redirect(`/admin/merchants/${m.id}?msg=${encodeURIComponent(`Merchant created with Pay Center site ${site!.id}. Next: connect ${systemName(m)}.`)}`);
 }
 
 export async function saveMerchant(form: FormData) {
@@ -78,12 +87,20 @@ export async function saveMerchant(form: FormData) {
     pcBaseUrl: str(form, "pcBaseUrl"),
     pcSiteId: str(form, "pcSiteId"),
     pcAccessToken: str(form, "pcAccessToken") || null,
-    fbAccountId: str(form, "fbAccountId") || null,
+    acctAccountId: str(form, "acctAccountId") || null,
     notifyMode: pick(str(form, "notifyMode"), ["link", "customer"] as const, "customer"),
     recordOn: pick(str(form, "recordOn"), ["settled", "captured"] as const, "settled"),
     reversals: pick(str(form, "reversals"), ["review", "auto"] as const, "review"),
     status: pick(str(form, "status"), ["setup", "active", "paused"] as const, "setup"),
+    ...(form.has("qbTrigger") ? {
+      qbTrigger: pick(str(form, "qbTrigger"), ["open", "sent"] as const, "open"),
+      bookFees: str(form, "bookFees") === "yes",
+      qbDepositAccountId: str(form, "qbDepositAccountId") || null,
+      qbFeeItemId: str(form, "qbFeeItemId") || null,
+    } : {}),
   });
+  if (form.has("qbTrigger") && str(form, "bookFees") === "yes" && !str(form, "qbFeeItemId"))
+    back(id, "Saved, but fees will not be booked until a fee item is chosen (or created with the button above).", true);
   back(id, "Saved.");
 }
 
@@ -92,6 +109,23 @@ export async function makeConnectLink(form: FormData) {
   const id = str(form, "id");
   await issueConnectToken(id);
   back(id, "Connect link created. Send it to the merchant; it works for 7 days.");
+}
+
+/** QuickBooks: creates the "Card Processing Fee" service item and its income account, and selects it. */
+export async function createFeeItem(form: FormData) {
+  await guard();
+  const id = str(form, "id");
+  const m = await getMerchant(id);
+  if (!m) redirect("/admin");
+  try {
+    const r = await ensureFeeItem(quickBooksClientFor(m), str(form, "itemName") || undefined, str(form, "accountName") || undefined, str(form, "incomeAccountId") || undefined);
+    await updateMerchant(id, { qbFeeItemId: r.itemId, bookFees: true });
+    await storeFor(m).log("info", "Fee item set", r);
+    back(id, r.created.length ? `Created ${r.created.join(" and ")} in QuickBooks; fees will be booked there.` : "Fee item already existed in QuickBooks; selected it and turned fee booking on.");
+  } catch (err) {
+    if ((err as any)?.digest?.startsWith?.("NEXT_REDIRECT")) throw err;
+    back(id, `Could not create the fee item: ${String(err)}`, true);
+  }
 }
 
 export async function registerMerchantWebhooks(form: FormData) {
@@ -140,7 +174,7 @@ export async function pushInvoice(form: FormData) {
   const invoiceId = str(form, "invoiceId").replace(/\D/g, "");
   const m = await getMerchant(id);
   if (!m) redirect("/admin");
-  if (!invoiceId) back(id, "Enter the FreshBooks invoice id (the number in the invoice's web address).", true);
+  if (!invoiceId) back(id, `Enter the ${systemName(m)} invoice id (the number in the invoice's web address).`, true);
   try {
     const r = await syncInvoice(depsFor(m), invoiceId);
     back(id, `Invoice ${invoiceId}: ${r.status}${r.reason ? ` (${r.reason})` : ""}.`, r.status === "needs_review");
