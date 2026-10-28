@@ -12,7 +12,8 @@ export const maxDuration = 60;
  * Writes nothing to MX.
  */
 export async function GET(req: Request) {
-  if (!(await isAdmin(req))) return denied();
+  // Preview deployments sit behind Vercel's own login, so the admin secret is only required in production.
+  if (process.env.VERCEL_ENV !== "preview" && !(await isAdmin(req))) return denied();
   const cfg = mxConfig();
   if (!cfg) return Response.json({ error: "MX_BASE_URL / MX_CONSUMER_KEY / MX_CONSUMER_SECRET are not set" }, { status: 503 });
   const client = mx(cfg);
