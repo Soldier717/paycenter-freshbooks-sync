@@ -3,6 +3,7 @@ import { depsFor, storeFor } from "@/lib/deps";
 import { safeEqual } from "@/lib/freshbooks";
 import { activeMerchants } from "@/lib/merchants";
 import { reconcile } from "@/lib/sync";
+import { refreshStatuses } from "@/lib/pbspay";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,7 +15,9 @@ export async function GET(req: Request) {
   const out: Record<string, unknown> = {};
   for (const m of await activeMerchants()) {
     try {
-      out[m.name] = await reconcile(depsFor(m));
+      // PBS Pay has no webhook: ask MX for the current status of anything not yet settled.
+      const refreshed = m.payments === "pbspay" ? await refreshStatuses(m) : [];
+      out[m.name] = { ...(await reconcile(depsFor(m))), refreshed };
     } catch (err) {
       out[m.name] = { status: "error", error: String(err) };
       await storeFor(m).log("error", "Daily reconcile failed", { error: String(err) });

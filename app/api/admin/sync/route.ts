@@ -2,6 +2,7 @@ import { depsFor } from "@/lib/deps";
 import { denied, isAdmin } from "@/lib/guard";
 import { getMerchant } from "@/lib/merchants";
 import { reconcile, syncInvoice, syncPayment } from "@/lib/sync";
+import { refreshStatuses } from "@/lib/pbspay";
 
 export const dynamic = "force-dynamic";
 
@@ -26,5 +27,6 @@ export async function GET(req: Request) {
   if (!(await isAdmin(req))) return denied();
   const m = await merchantFrom(req);
   if (!m) return Response.json({ error: "Unknown merchant" }, { status: 404 });
-  return Response.json(await reconcile(depsFor(m), { full: true }));
+  const refreshed = m.payments === "pbspay" ? await refreshStatuses(m) : [];
+  return Response.json({ ...(await reconcile(depsFor(m), { full: true })), refreshed });
 }

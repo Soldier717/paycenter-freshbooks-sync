@@ -33,6 +33,10 @@ function toMerchant(r: any): Merchant {
     qbEnv: r.qb_env === "sandbox" ? "sandbox" : "production",
     qbDepositAccountId: r.qb_deposit_account_id ?? null,
     qbFeeItemId: r.qb_fee_item_id ?? null,
+    payments: r.payments === "pbspay" ? "pbspay" : "paycenter",
+    mxMerchantId: r.mx_merchant_id ?? null,
+    feeRateBps: Number(r.fee_rate_bps ?? 300),
+    achEnabled: r.ach_enabled !== false,
     connectToken: r.connect_token, connectExpiresAt: r.connect_expires_at ? new Date(r.connect_expires_at).getTime() : null,
     createdAt: r.created_at,
   };
@@ -53,6 +57,10 @@ export interface MerchantInput {
   qbEnv?: Merchant["qbEnv"];
   qbDepositAccountId?: string | null;
   qbFeeItemId?: string | null;
+  payments?: Merchant["payments"];
+  mxMerchantId?: string | null;
+  feeRateBps?: number;
+  achEnabled?: boolean;
   status?: Merchant["status"];
 }
 
@@ -123,7 +131,7 @@ export async function createMerchant(input: MerchantInput): Promise<Merchant> {
     accounting: input.accounting ?? "freshbooks",
     fb_account_id: input.acctAccountId?.trim() || null,
     pc_base_url: input.pcBaseUrl.trim().replace(/\/+$/, ""),
-    pc_site_id: input.pcSiteId.trim(),
+    pc_site_id: input.pcSiteId.trim() || (input.payments === "pbspay" ? "pbspay" : ""),
     pc_access_token_enc: input.pcAccessToken ? seal(cleanToken(input.pcAccessToken)) : null,
     pc_webhook_secret: randomSecret(),
     notify_mode: input.notifyMode, record_on: input.recordOn, reversals: input.reversals,
@@ -132,6 +140,10 @@ export async function createMerchant(input: MerchantInput): Promise<Merchant> {
     qb_env: input.qbEnv ?? "production",
     qb_deposit_account_id: input.qbDepositAccountId ?? null,
     qb_fee_item_id: input.qbFeeItemId ?? null,
+    payments: input.payments ?? "paycenter",
+    mx_merchant_id: input.mxMerchantId?.trim() || null,
+    fee_rate_bps: input.feeRateBps ?? 300,
+    ach_enabled: input.achEnabled ?? true,
   }).select("*").single());
   return toMerchant(r);
 }
@@ -153,6 +165,10 @@ export async function updateMerchant(id: string, patch: Partial<MerchantInput>):
   if (patch.qbEnv !== undefined) row.qb_env = patch.qbEnv;
   if (patch.qbDepositAccountId !== undefined) row.qb_deposit_account_id = patch.qbDepositAccountId || null;
   if (patch.qbFeeItemId !== undefined) row.qb_fee_item_id = patch.qbFeeItemId || null;
+  if (patch.payments !== undefined) row.payments = patch.payments;
+  if (patch.mxMerchantId !== undefined) row.mx_merchant_id = patch.mxMerchantId?.trim() || null;
+  if (patch.feeRateBps !== undefined) row.fee_rate_bps = patch.feeRateBps;
+  if (patch.achEnabled !== undefined) row.ach_enabled = patch.achEnabled;
   ok(await db().from("merchants").update(row).eq("id", id));
 }
 

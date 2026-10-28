@@ -8,10 +8,22 @@ import { ADMIN_COOKIE, adminCookieValue, hasAdminCookie, isAdminSecret } from "@
 import { createMerchant, getMerchant, issueConnectToken, updateMerchant } from "@/lib/merchants";
 import { registerWebhooks } from "@/lib/onboarding";
 import { ensureFeeItem, qbConfigured } from "@/lib/quickbooks";
+import { mxConfig } from "@/lib/mx";
+import { refreshStatuses } from "@/lib/pbspay";
 import { reconcile, syncInvoice } from "@/lib/sync";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const pick = <T extends string>(v: string, allowed: readonly T[], fallback: T): T => (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+
+/** PBS Pay fields from a form, when present. The fee is typed as a percent and stored in basis points. */
+function paymentsFrom(form: FormData) {
+  if (!form.has("payments")) return {};
+  const payments = pick(str(form, "payments"), ["paycenter", "pbspay"] as const, "paycenter");
+  if (payments === "pbspay" && !mxConfig()) redirect("/admin?err=" + encodeURIComponent("MX Merchant keys are not configured on this server"));
+  const pct = Number(str(form, "feeRatePct").replace("%", ""));
+  const feeRateBps = Number.isFinite(pct) ? Math.min(400, Math.max(0, Math.round(pct * 100))) : 300;
+  return { payments, mxMerchantId: str(form, "mxMerchantId") || null, feeRateBps, achEnabled: str(form, "achEnabled") !== "no" };
+}
 
 async function guard() {
   if (!(await hasAdminCookie())) redirect("/admin/login");
@@ -37,10 +49,13 @@ export async function addMerchant(form: FormData) {
   const name = str(form, "name");
   const ag = agency();
   const pcSiteId = str(form, "pcSiteId");
-  // A site id typed in always means "use that site", whatever the dropdown says.
-  const create = !!ag && str(form, "siteMode") !== "existing" && !pcSiteId;
+  const pay = paymentsFrom(form);
+  const pbs = pay.payments === "pbspay";
+  // A site id typed in always means "use that site", whatever the dropdown says. PBS Pay needs no site.
+  const create = !pbs && !!ag && str(form, "siteMode") !== "existing" && !pcSiteId;
   if (!name) redirect("/admin/merchants/new?error=" + encodeURIComponent("Merchant name is required"));
-  if (!create && !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Enter the Pay Center site id, or choose to create a new site"));
+  if (!pbs && !create && !pcSiteId) redirect("/admin/merchants/new?error=" + encodeURIComponent("Enter the Pay Center site id, choose to create a new site, or choose PBS Pay"));
+  if (pbs && !pay.mxMerchantId) redirect("/admin/merchants/new?error=" + encodeURIComponent("PBS Pay needs the MX merchant id"));
   if (create) {
     const missing = ["addressLine1", "city", "stateCode", "zipCode"].filter((k) => !str(form, k));
     if (missing.length)
@@ -59,6 +74,7 @@ export async function addMerchant(form: FormData) {
     pcBaseUrl: create ? ag!.baseUrl : str(form, "pcBaseUrl") || "https://api.paycenter.app",
     pcSiteId: create ? "pending" : pcSiteId,
     pcAccessToken: create ? null : str(form, "pcAccessToken") || null,
+    ...pay,
     acctAccountId: str(form, "acctAccountId") || null,
     notifyMode: pick(str(form, "notifyMode"), ["link", "customer"] as const, "customer"),
     recordOn: pick(str(form, "recordOn"), ["settled", "captured"] as const, "settled"),
@@ -98,6 +114,7 @@ export async function saveMerchant(form: FormData) {
     recordOn: pick(str(form, "recordOn"), ["settled", "captured"] as const, "settled"),
     reversals: pick(str(form, "reversals"), ["review", "auto"] as const, "review"),
     status: pick(str(form, "status"), ["setup", "active", "paused"] as const, "setup"),
+    ...paymentsFrom(form),
     ...(form.has("qbTrigger") ? {
       qbTrigger: pick(str(form, "qbTrigger"), ["open", "sent"] as const, "open"),
       bookFees: str(form, "bookFees") === "yes",
@@ -154,6 +171,7 @@ export async function recheckPayments(form: FormData) {
   const m = await getMerchant(id);
   if (!m) redirect("/admin");
   try {
+    if (m.payments === "pbspay") await refreshStatuses(m);
     const r = await reconcile(depsFor(m), { full: true });
     const counts = Object.entries((r.counts as Record<string, number>) ?? {}).map(([k, v]) => `${v} ${k}`).join(", ") || "no payments in the last 7 days";
     back(id, `Re-check done: ${counts}.`);

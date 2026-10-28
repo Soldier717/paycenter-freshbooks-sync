@@ -2,7 +2,8 @@ import { requireAdmin } from "@/lib/admin-session";
 import { agency } from "@/lib/paycenter-agency";
 import { addMerchant } from "../../actions";
 import { qbConfigured } from "@/lib/quickbooks";
-import { QuickBooksFields, SettingsFields } from "../settings-fields";
+import { mxConfig } from "@/lib/mx";
+import { PaymentsFields, QuickBooksFields, SettingsFields } from "../settings-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,9 @@ export default async function NewMerchant({ searchParams }: { searchParams: Prom
         <label htmlFor="name">Merchant name</label>
         <input id="name" name="name" required placeholder="Diane's Bookkeeping LLC" />
 
-        <h2>Pay Center</h2>
+        <h2>Payments</h2>
+        <PaymentsFields mxConfigured={!!mxConfig()} />
+        <h2>Pay Center (only when payments are taken by Hyfin Pay Center)</h2>
         {ag && (
           <>
             <label htmlFor="siteMode">Site</label>

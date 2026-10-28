@@ -29,6 +29,13 @@ export interface Merchant {
   qbDepositAccountId: string | null;
   /** QuickBooks service item whose income account receives the fees. Required when bookFees is on. */
   qbFeeItemId: string | null;
+  /** Who takes the money: Hyfin Pay Center, or our own pay page on MX Merchant. */
+  payments: "paycenter" | "pbspay";
+  /** MX Merchant's numeric merchant id (not the processor MID). PBS Pay only. */
+  mxMerchantId: string | null;
+  /** Customer card fee in basis points (300 = 3%). ACH has no fee. PBS Pay only. */
+  feeRateBps: number;
+  achEnabled: boolean;
   connectToken: string | null;
   connectExpiresAt: number | null;
   createdAt: string;

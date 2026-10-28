@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-session";
-import { pcTokenFor, quickBooksClientFor, storeFor, systemName } from "@/lib/deps";
+import { pcTokenFor, platformName, quickBooksClientFor, storeFor, systemName } from "@/lib/deps";
+import { mxConfig } from "@/lib/mx";
 import { db, getMerchant } from "@/lib/merchants";
 import { connectUrl } from "@/lib/onboarding";
 import { depositAccounts, incomeAccounts, QbAccount, QbItem, serviceItems } from "@/lib/quickbooks";
 import { createFeeItem, makeConnectLink, pushInvoice, recheckPayments, registerMerchantWebhooks, resolveItem, saveMerchant } from "../../actions";
-import { QuickBooksFields, SettingsFields } from "../settings-fields";
+import { PaymentsFields, QuickBooksFields, SettingsFields } from "../settings-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,8 @@ export default async function MerchantPage({ params, searchParams }: { params: P
     s.recentLog(30) as Promise<any[]>,
   ]);
   const verified = qb ? 4 : (await db().from("fb_callbacks").select("callback_id", { count: "exact", head: true }).eq("merchant_id", m.id).eq("verified", true)).count ?? 0;
-  const tokenSource = m.pcAccessToken ? "site" : pcTokenFor(m) ? "agency" : null;
+  const pbs = m.payments === "pbspay";
+  const tokenSource = pbs ? (m.mxMerchantId && mxConfig() ? "mx" : null) : m.pcAccessToken ? "site" : pcTokenFor(m) ? "agency" : null;
   // QuickBooks setup lists, read live from the connected company. A failure here must not hide the page.
   let qbAccounts: QbAccount[] = [], qbIncome: QbAccount[] = [], qbItems: QbItem[] = [], qbError: string | null = null;
   if (qb && tokens && m.acctAccountId) {
@@ -49,8 +51,8 @@ export default async function MerchantPage({ params, searchParams }: { params: P
       <h1>{m.name}</h1>
       <p className="sub">
         <span className={`pill ${m.status === "active" ? "ok" : m.status === "paused" ? "" : "warn"}`}>{m.status === "active" ? "Live" : m.status === "paused" ? "Paused" : "In setup"}</span>{" "}
-        <span className={`pill ${m.pcBaseUrl.includes("stage") ? "" : "gold"}`}>{m.pcBaseUrl.includes("stage") ? "Demo site" : "Production site"}</span>{" "}
-        <span className="mono muted small">{m.pcSiteId || "no Pay Center site yet"}</span>
+        <span className={`pill ${pbs ? "gold" : m.pcBaseUrl.includes("stage") ? "" : "gold"}`}>{pbs ? "PBS Pay" : m.pcBaseUrl.includes("stage") ? "Pay Center demo site" : "Pay Center production site"}</span>{" "}
+        <span className="mono muted small">{pbs ? `MX ${m.mxMerchantId ?? "—"}` : m.pcSiteId || "no Pay Center site yet"}</span>
       </p>
       {msg && <div className="flash">{msg}</div>}
       {err && <div className="flash bad">{err}</div>}
@@ -58,7 +60,11 @@ export default async function MerchantPage({ params, searchParams }: { params: P
       <div className="card">
         <h2 style={{ marginTop: 0 }}>Setup checklist</h2>
         <ul className="check">
-          <li><span className={`dot ${tokenSource ? "ok" : "warn"}`} /><span>Pay Center access {tokenSource === "site" ? "via this site's token" : tokenSource === "agency" ? "via the PBS agency token" : "missing — add a site token in Settings below"}</span></li>
+          {pbs ? (
+            <li><span className={`dot ${tokenSource ? "ok" : "warn"}`} /><span>PBS Pay on MX Merchant {tokenSource ? <>(merchant <code>{m.mxMerchantId}</code>, {mxConfig()!.baseUrl.includes("sandbox") ? "sandbox" : "production"} keys, card fee {(m.feeRateBps / 100).toString()}%{m.achEnabled ? ", ACH offered" : ", card only"})</> : m.mxMerchantId ? "— MX keys are not configured on this server" : "— enter the MX merchant id in Settings below"}</span></li>
+          ) : (
+            <li><span className={`dot ${tokenSource ? "ok" : "warn"}`} /><span>Pay Center access {tokenSource === "site" ? "via this site's token" : tokenSource === "agency" ? "via the PBS agency token" : "missing — add a site token in Settings below"}</span></li>
+          )}
           <li><span className={`dot ${tokens ? "ok" : "warn"}`} /><span>{sys} {tokens ? <>connected ({qb ? "company" : "account"} <code>{m.acctAccountId}</code>{qb && m.qbEnv === "sandbox" ? ", sandbox" : ""}{qb && tokens.refreshExpiresAt ? `, access renews until ${new Date(tokens.refreshExpiresAt).toLocaleDateString("en-US")}` : ""})</> : "not connected"}</span></li>
           {qb ? (
             <>
@@ -80,7 +86,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
           <form action={pushInvoice} className="row" style={{ marginTop: 12 }}>
             <input type="hidden" name="id" value={m.id} />
             <input name="invoiceId" placeholder={`${sys} invoice id`} style={{ maxWidth: 220 }} />
-            <button className="btn" type="submit">Push invoice to Pay Center</button>
+            <button className="btn" type="submit">Push invoice to {platformName(m)}</button>
             <span className="small muted">Same as a {sys} webhook; safe to repeat.</span>
           </form>
         )}
@@ -90,9 +96,11 @@ export default async function MerchantPage({ params, searchParams }: { params: P
             <code>{connectLink}</code>
           </p>
         )}
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          Pay Center webhook address for this merchant (set automatically on each invoice): <code>/api/paycenter/webhook/{m.pcWebhookSecret.slice(0, 6)}…</code>
-        </p>
+        {!pbs && (
+          <p className="small muted" style={{ marginBottom: 0 }}>
+            Pay Center webhook address for this merchant (set automatically on each invoice): <code>/api/paycenter/webhook/{m.pcWebhookSecret.slice(0, 6)}…</code>
+          </p>
+        )}
       </div>
 
       {held.length > 0 && (
@@ -139,6 +147,8 @@ export default async function MerchantPage({ params, searchParams }: { params: P
             <div><label htmlFor="pcAccessToken">Pay Center site token {m.pcAccessToken ? "(leave blank to keep)" : "(optional when the site is under the PBS agency)"}</label><input id="pcAccessToken" name="pcAccessToken" type="password" autoComplete="off" className="mono" /></div>
             <div><label htmlFor="acctAccountId">{sys} {qb ? "company (realm) id" : "account id"}</label><input id="acctAccountId" name="acctAccountId" defaultValue={m.acctAccountId ?? ""} className="mono" /></div>
           </div>
+          <h2>Payments</h2>
+          <PaymentsFields m={m} mxConfigured={!!mxConfig()} />
           <h2>Rules</h2>
           <SettingsFields m={m} system={sys} />
           {qb && (
@@ -185,7 +195,7 @@ export default async function MerchantPage({ params, searchParams }: { params: P
                 <tr key={i.fb_invoice_id}>
                   <td>{i.invoice_number} <span className="muted small">(id {i.fb_invoice_id})</span></td>
                   <td>{money(Number(i.total_cents))}</td>
-                  <td>{i.pay_link ? <a href={i.pay_link} target="_blank" rel="noreferrer">open</a> : <span className="pill">Sent by Pay Center</span>}</td>
+                  <td>{i.pay_link ? <a href={i.pay_link} target="_blank" rel="noreferrer">open</a> : <span className="pill">Sent by {platformName(m)}</span>}</td>
                   <td className="small muted">{when(i.updated_at)}</td>
                 </tr>
               ))}

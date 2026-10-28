@@ -35,7 +35,7 @@ export default async function Merchants() {
               <tr key={m.id}>
                 <td>
                   <a href={`/admin/merchants/${m.id}`}><b>{m.name}</b></a>
-                  <div className="small muted mono">{m.pcBaseUrl.includes("stage") ? "demo · " : ""}{m.pcSiteId || "no site yet"}</div>
+                  <div className="small muted mono">{m.payments === "pbspay" ? `PBS Pay · MX ${m.mxMerchantId ?? "—"}` : `${m.pcBaseUrl.includes("stage") ? "demo · " : ""}${m.pcSiteId || "no site yet"}`}</div>
                 </td>
                 <td>{statusPill(m.status)}</td>
                 <td>{m.accounting === "quickbooks" ? "QuickBooks" : "FreshBooks"} {m.acctConnected ? <span className="pill ok">Connected</span> : <span className="pill warn">Not connected</span>}</td>

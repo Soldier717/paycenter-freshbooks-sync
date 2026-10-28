@@ -1,10 +1,11 @@
 import { appUrl, env } from "./config";
 import { freshBooks, OAuthApp } from "./freshbooks";
 import { payCenter } from "./paycenter";
+import { pbsPay } from "./pbspay";
 import { agencyTokenFor } from "./paycenter-agency";
 import { qbApp, qbClient, QbApp, quickBooks } from "./quickbooks";
 import { merchantStore } from "./store";
-import { AccountingApi, Deps, Merchant, Store, SyncSettings } from "./types";
+import { AccountingApi, Deps, Merchant, PayCenterApi, Store, SyncSettings } from "./types";
 
 /** PBS owns one FreshBooks developer app; every merchant approves it on their own account. */
 export function oauthApp(): OAuthApp {
@@ -30,7 +31,7 @@ export function settingsFor(m: Merchant): SyncSettings {
     recordOn: m.recordOn,
     reversals: m.reversals,
     bookFees: m.bookFees,
-    webhookUrl: `${appUrl()}/api/paycenter/webhook/${m.pcWebhookSecret}`,
+    webhookUrl: m.payments === "pbspay" ? null : `${appUrl()}/api/paycenter/webhook/${m.pcWebhookSecret}`,
   };
 }
 
@@ -59,14 +60,23 @@ export function quickBooksClientFor(m: Merchant) {
   return qbClient(storeFor(m), quickBooksApp(m.qbEnv), m.acctAccountId);
 }
 
-export function depsFor(m: Merchant): Deps {
-  const acct = accountingFor(m);
+export const platformName = (m: Pick<Merchant, "payments">) => (m.payments === "pbspay" ? "PBS Pay" : "Pay Center");
+
+export function paymentsFor(m: Merchant): PayCenterApi {
+  if (m.payments === "pbspay") {
+    if (!m.mxMerchantId) throw new MerchantNotReady(`${m.name}: MX merchant id is not set`);
+    return pbsPay(m);
+  }
   const token = pcTokenFor(m);
   if (!token) throw new MerchantNotReady(`${m.name}: Pay Center token is missing`);
+  return payCenter(m.pcBaseUrl, m.pcSiteId, token);
+}
+
+export function depsFor(m: Merchant): Deps {
   return {
     store: storeFor(m),
-    acct,
-    pc: payCenter(m.pcBaseUrl, m.pcSiteId, token),
+    acct: accountingFor(m),
+    pc: paymentsFor(m),
     settings: settingsFor(m),
   };
 }

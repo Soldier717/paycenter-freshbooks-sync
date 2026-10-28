@@ -72,3 +72,30 @@ export function QuickBooksFields({ m, accounts, items, connected }: {
     </div>
   );
 }
+
+/** Who takes the money. PBS Pay fields only matter when that is chosen. */
+export function PaymentsFields({ m, mxConfigured }: { m?: Merchant; mxConfigured: boolean }) {
+  return (
+    <div className="grid">
+      <div>
+        <label htmlFor="payments">Payments taken by</label>
+        <select id="payments" name="payments" defaultValue={m?.payments ?? "paycenter"}>
+          <option value="paycenter">Hyfin Pay Center</option>
+          <option value="pbspay" disabled={!mxConfigured}>PBS Pay (MX Merchant){mxConfigured ? "" : " — MX keys not configured"}</option>
+        </select>
+      </div>
+      <div><label htmlFor="mxMerchantId">MX merchant id (PBS Pay)</label><input id="mxMerchantId" name="mxMerchantId" defaultValue={m?.mxMerchantId ?? ""} className="mono" placeholder="e.g. 1000158703, from the MX portal" /></div>
+      <div>
+        <label htmlFor="feeRatePct">Card fee the customer pays (PBS Pay)</label>
+        <input id="feeRatePct" name="feeRatePct" inputMode="decimal" defaultValue={((m?.feeRateBps ?? 300) / 100).toString()} style={{ maxWidth: 120 }} /> <span className="small muted">% of the invoice, max 4. ACH has no fee.</span>
+      </div>
+      <div>
+        <label htmlFor="achEnabled">Bank transfer (ACH) on the pay page</label>
+        <select id="achEnabled" name="achEnabled" defaultValue={m?.achEnabled === false ? "no" : "yes"}>
+          <option value="yes">Offered, at the cash price</option>
+          <option value="no">Card only</option>
+        </select>
+      </div>
+    </div>
+  );
+}
