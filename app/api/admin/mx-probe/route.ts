@@ -22,6 +22,10 @@ export async function GET(req: Request) {
   const step = async (name: string, fn: () => Promise<unknown>) => {
     try { out[name] = await fn(); } catch (err) { out[name] = { error: String((err as Error).message ?? err) }; }
   };
+  await step("schema", async () => {
+    const r = await db().from("pay_requests").select("id", { count: "exact", head: true });
+    return r.error ? { migration0004: "missing", error: r.error.message } : { migration0004: "applied", payRequests: r.count };
+  });
   await step("merchants", async () => (await client.listMerchants()).map((m) => ({ id: m.id, name: m.name ?? m.dba, merchantId: m.merchantId, status: m.status, keys: Object.keys(m).slice(0, 40) })));
   if (merchantId) {
     await step("merchant", () => client.getMerchant(merchantId));
