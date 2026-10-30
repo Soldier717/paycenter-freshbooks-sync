@@ -50,3 +50,6 @@ export async function POST(req: Request) {
     await sql.end({ timeout: 5 });
   }
 }
+
+// GET is accepted too so the route can be run from a plain browser visit.
+export const GET = POST;
